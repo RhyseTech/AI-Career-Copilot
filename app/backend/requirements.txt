@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pdfplumber
+spacy
+sentence-transformers
+groq
+python-dotenv
+pydantic
+numpy
+scikit-learn
+httpx
+aiofiles
