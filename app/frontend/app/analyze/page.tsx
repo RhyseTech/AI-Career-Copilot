@@ -1,244 +1,565 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+type ResumeMode = "file" | "text";
+type JobMode = "text" | "file" | "link";
+type LoadingStep = "idle" | "parsing" | "matching" | "analyzing" | "done";
+type DropTarget = "resume" | "job" | null;
+
+const LOADING_STEPS: { key: Exclude<LoadingStep, "idle">; label: string }[] = [
+  { key: "parsing", label: "Reading your resume and target role" },
+  { key: "matching", label: "Comparing resume skills with the job" },
+  { key: "analyzing", label: "Finding missing skills and study needs" },
+  { key: "done", label: "Building your dashboard" },
+];
+
+function formatBytes(size: number) {
+  if (!size) return "0 KB";
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
+function getDomainLabel(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "job link";
+  }
+}
+
+function SourceToggle<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: T; label: string; hint: string }[];
+  value: T;
+  onChange: (next: T) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      {options.map((option) => {
+        const active = option.id === value;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onChange(option.id)}
+            style={{
+              flex: "1 1 160px",
+              borderRadius: 14,
+              border: active ? "1px solid rgba(34,211,238,0.35)" : "1px solid var(--border-subtle)",
+              background: active ? "linear-gradient(180deg, rgba(14,165,233,0.14), rgba(99,102,241,0.12))" : "rgba(255,255,255,0.02)",
+              padding: "14px 16px",
+              textAlign: "left",
+              color: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>{option.label}</div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>{option.hint}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AnalyzePage() {
-    const router = useRouter();
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [resumeFile, setResumeFile] = useState<File | null>(null);
-    const [resumeText, setResumeText] = useState("");
-    const [jobDescription, setJobDescription] = useState("");
-    const [inputMode, setInputMode] = useState<"file" | "text">("file");
-    const [isDragging, setIsDragging] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState("");
-    const [step, setStep] = useState<"idle" | "parsing" | "matching" | "analyzing" | "done">("idle");
+  const router = useRouter();
+  const resumeInputRef = useRef<HTMLInputElement>(null);
+  const jobInputRef = useRef<HTMLInputElement>(null);
 
-    const LOADING_STEPS = [
-        { key: "parsing", label: "Parsing your resume...", icon: "📄" },
-        { key: "matching", label: "Running semantic match engine...", icon: "🧠" },
-        { key: "analyzing", label: "Detecting skill gaps...", icon: "🔍" },
-        { key: "done", label: "Building your report...", icon: "✨" },
-    ];
+  const [resumeMode, setResumeMode] = useState<ResumeMode>("file");
+  const [jobMode, setJobMode] = useState<JobMode>("text");
+  const [activeDropTarget, setActiveDropTarget] = useState<DropTarget>(null);
 
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        const file = e.dataTransfer.files[0];
-        if (file && file.type === "application/pdf") {
-            setResumeFile(file);
-            setError("");
-        } else {
-            setError("Please upload a PDF file.");
-        }
-    }, []);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeText, setResumeText] = useState("");
 
-    const handleSubmit = async () => {
-        if (!jobDescription.trim()) { setError("Please paste a job description."); return; }
-        if (inputMode === "file" && !resumeFile) { setError("Please upload your resume."); return; }
-        if (inputMode === "text" && !resumeText.trim()) { setError("Please paste your resume text."); return; }
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobDescriptionFile, setJobDescriptionFile] = useState<File | null>(null);
+  const [jobDescriptionUrl, setJobDescriptionUrl] = useState("");
 
-        setLoading(true);
-        setError("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [step, setStep] = useState<LoadingStep>("idle");
 
-        // Simulate progressive steps for UX
-        const steps: Array<"parsing" | "matching" | "analyzing" | "done"> = ["parsing", "matching", "analyzing", "done"];
-        let stepIdx = 0;
-        const stepTimer = setInterval(() => {
-            if (stepIdx < steps.length) { setStep(steps[stepIdx++]); }
-            else clearInterval(stepTimer);
-        }, 900);
+  const supportedResumeHint = useMemo(
+    () => (resumeFile ? `${resumeFile.name} - ${formatBytes(resumeFile.size)}` : "PDF or DOCX up to 10MB"),
+    [resumeFile]
+  );
+  const supportedJobHint = useMemo(() => {
+    if (jobMode === "file" && jobDescriptionFile) {
+      return `${jobDescriptionFile.name} - ${formatBytes(jobDescriptionFile.size)}`;
+    }
+    if (jobMode === "link" && jobDescriptionUrl.trim()) {
+      return `Source: ${getDomainLabel(jobDescriptionUrl.trim())}`;
+    }
+    if (jobMode === "text" && jobDescription.trim()) {
+      return `${jobDescription.length} characters added`;
+    }
+    return "Paste text, upload TXT/PDF/DOCX, or add a LinkedIn or careers link";
+  }, [jobDescription, jobDescriptionFile, jobDescriptionUrl, jobMode]);
 
-        try {
-            const formData = new FormData();
-            formData.append("job_description", jobDescription);
-            if (inputMode === "file" && resumeFile) {
-                formData.append("resume_file", resumeFile);
-            } else {
-                formData.append("resume_text", resumeText);
-            }
-
-            const res = await fetch(`${API}/api/analyze`, { method: "POST", body: formData });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || "Analysis failed. Please try again.");
-            }
-            const data = await res.json();
-
-            clearInterval(stepTimer);
-            // Store results in sessionStorage and navigate to dashboard
-            sessionStorage.setItem("analysisResult", JSON.stringify(data));
-            sessionStorage.setItem("jobDescription", jobDescription);
-            router.push("/dashboard");
-        } catch (e: any) {
-            clearInterval(stepTimer);
-            setStep("idle");
-            setError(e.message || "Something went wrong. Is the backend running?");
-            setLoading(false);
-        }
-    };
-
+  const isResumeFileSupported = useCallback((file: File) => {
+    const name = file.name.toLowerCase();
     return (
-        <div style={{ minHeight: "100vh", background: "var(--bg-primary)", position: "relative", overflow: "hidden" }}>
-            <div className="orb orb-1" style={{ top: "-200px", right: "-100px" }} />
-            <div className="orb orb-2" style={{ bottom: "5%", left: "-100px" }} />
-
-            {/* Nav */}
-            <nav className="nav-blur" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "0 32px" }}>
-                <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 60, gap: 16 }}>
-                    <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#06b6d4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚡</div>
-                        <span style={{ fontFamily: "var(--font-space)", fontWeight: 700, color: "var(--text-primary)" }}>Career<span className="gradient-text">Copilot</span></span>
-                    </Link>
-                </div>
-            </nav>
-
-            <div style={{ paddingTop: 100, paddingBottom: 80, maxWidth: 960, margin: "0 auto", padding: "100px 24px 80px" }}>
-                {/* Header */}
-                <div style={{ textAlign: "center", marginBottom: 48 }} className="animate-fade-in-up">
-                    <h1 style={{ fontSize: "clamp(2rem, 4vw, 3rem)", fontWeight: 800, marginBottom: 12 }}>
-                        Analyze Your <span className="gradient-text">Career Fit</span>
-                    </h1>
-                    <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem" }}>
-                        Upload your resume + paste the job description. Let AI do the rest.
-                    </p>
-                </div>
-
-                {/* Form Grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }} className="animate-fade-in-up delay-100">
-                    {/* Left — Resume Input */}
-                    <div className="glass-card" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 20 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                            <span style={{ fontSize: "1.3rem" }}>📄</span>
-                            <h2 style={{ fontSize: "1.1rem", fontWeight: 700 }}>Your Resume</h2>
-                        </div>
-
-                        {/* Toggle */}
-                        <div style={{ display: "flex", background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4, border: "1px solid var(--border-subtle)" }}>
-                            {(["file", "text"] as const).map(mode => (
-                                <button key={mode} onClick={() => setInputMode(mode)}
-                                    style={{
-                                        flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 500, fontSize: "0.85rem", transition: "all 0.25s",
-                                        background: inputMode === mode ? "linear-gradient(135deg,#6366f1,#4f46e5)" : "transparent",
-                                        color: inputMode === mode ? "#fff" : "var(--text-secondary)",
-                                    }}>
-                                    {mode === "file" ? "📎 Upload PDF" : "✏️ Paste Text"}
-                                </button>
-                            ))}
-                        </div>
-
-                        {inputMode === "file" ? (
-                            <div
-                                className={`drop-zone ${isDragging ? "active" : ""}`}
-                                style={{ padding: "40px 24px", textAlign: "center", minHeight: 180, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}
-                                onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-                                onDragLeave={() => setIsDragging(false)}
-                                onDrop={handleDrop}
-                                onClick={() => fileInputRef.current?.click()}
-                            >
-                                <input ref={fileInputRef} type="file" accept=".pdf" style={{ display: "none" }}
-                                    onChange={e => { const f = e.target.files?.[0]; if (f) { setResumeFile(f); setError(""); } }} />
-                                {resumeFile ? (
-                                    <>
-                                        <div style={{ fontSize: "2.5rem" }}>✅</div>
-                                        <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--accent-green)" }}>{resumeFile.name}</div>
-                                        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{(resumeFile.size / 1024).toFixed(0)} KB · Click to change</div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div style={{ fontSize: "2.5rem" }}>☁️</div>
-                                        <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>Drop PDF here or click to browse</div>
-                                        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Supported: PDF · Max 10MB</div>
-                                    </>
-                                )}
-                            </div>
-                        ) : (
-                            <textarea
-                                className="input-glass"
-                                placeholder="Paste your resume text here..."
-                                value={resumeText}
-                                onChange={e => setResumeText(e.target.value)}
-                                style={{ minHeight: 220, resize: "vertical", lineHeight: 1.6, fontSize: "0.85rem" }}
-                            />
-                        )}
-                    </div>
-
-                    {/* Right — JD Input */}
-                    <div className="glass-card" style={{ padding: 28, display: "flex", flexDirection: "column", gap: 20 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                            <span style={{ fontSize: "1.3rem" }}>📋</span>
-                            <h2 style={{ fontSize: "1.1rem", fontWeight: 700 }}>Job Description</h2>
-                        </div>
-                        <textarea
-                            className="input-glass"
-                            placeholder="Paste the full job description here — from LinkedIn, Indeed, or any company careers page..."
-                            value={jobDescription}
-                            onChange={e => setJobDescription(e.target.value)}
-                            style={{ flex: 1, minHeight: 280, resize: "vertical", lineHeight: 1.65, fontSize: "0.85rem" }}
-                        />
-                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", alignSelf: "center" }}>
-                                {jobDescription.length} characters
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Error */}
-                {error && (
-                    <div style={{ marginTop: 20, padding: "14px 20px", borderRadius: 12, background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.25)", color: "#fb7185", fontSize: "0.9rem" }}>
-                        ⚠️ {error}
-                    </div>
-                )}
-
-                {/* Loading progress */}
-                {loading && (
-                    <div className="glass-card animate-fade-in" style={{ marginTop: 24, padding: "28px 32px" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                            {LOADING_STEPS.map((s, i) => {
-                                const stepOrder = ["parsing", "matching", "analyzing", "done"];
-                                const currentIdx = stepOrder.indexOf(step);
-                                const thisIdx = stepOrder.indexOf(s.key);
-                                const isActive = s.key === step;
-                                const isDone = thisIdx < currentIdx;
-                                return (
-                                    <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 14, opacity: thisIdx <= currentIdx ? 1 : 0.3, transition: "opacity 0.4s" }}>
-                                        <div style={{
-                                            width: 36, height: 36, borderRadius: 10, fontSize: "1.1rem",
-                                            display: "flex", alignItems: "center", justifyContent: "center",
-                                            background: isDone ? "rgba(16,185,129,0.15)" : isActive ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.04)",
-                                            border: isDone ? "1px solid rgba(16,185,129,0.4)" : isActive ? "1px solid rgba(99,102,241,0.4)" : "1px solid var(--border-subtle)",
-                                            flexShrink: 0
-                                        }}>
-                                            {isDone ? "✅" : isActive ? <div className="spinner" /> : s.icon}
-                                        </div>
-                                        <div style={{ color: isActive ? "var(--text-primary)" : isDone ? "var(--accent-green)" : "var(--text-muted)", fontWeight: isActive ? 600 : 400, fontSize: "0.9rem" }}>
-                                            {s.label}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* CTA */}
-                {!loading && (
-                    <div style={{ display: "flex", justifyContent: "center", marginTop: 32 }} className="animate-fade-in-up delay-200">
-                        <button className="btn-primary" onClick={handleSubmit}
-                            style={{ padding: "18px 56px", fontSize: "1.05rem", display: "flex", alignItems: "center", gap: 10 }}>
-                            <span>⚡</span> Analyze My Career Fit
-                        </button>
-                    </div>
-                )}
-
-                <p style={{ textAlign: "center", marginTop: 20, fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                    Your data is processed in-memory and never stored permanently.
-                </p>
-            </div>
-        </div>
+      file.type === "application/pdf" ||
+      name.endsWith(".pdf") ||
+      name.endsWith(".docx")
     );
+  }, []);
+
+  const isJobFileSupported = useCallback((file: File) => {
+    const name = file.name.toLowerCase();
+    return (
+      file.type === "application/pdf" ||
+      name.endsWith(".pdf") ||
+      name.endsWith(".docx") ||
+      name.endsWith(".txt") ||
+      name.endsWith(".md")
+    );
+  }, []);
+
+  const handleDrop = useCallback(
+    (target: DropTarget, file: File | undefined) => {
+      setActiveDropTarget(null);
+      if (!target || !file) return;
+
+      if (target === "resume") {
+        if (!isResumeFileSupported(file)) {
+          setError("Resume upload supports PDF or DOCX.");
+          return;
+        }
+        setResumeFile(file);
+        setError("");
+        return;
+      }
+
+      if (!isJobFileSupported(file)) {
+        setError("JD upload supports TXT, PDF, DOCX, or Markdown files.");
+        return;
+      }
+      setJobDescriptionFile(file);
+      setError("");
+    },
+    [isJobFileSupported, isResumeFileSupported]
+  );
+
+  async function handleSubmit() {
+    if (resumeMode === "file" && !resumeFile) {
+      setError("Please upload your resume.");
+      return;
+    }
+    if (resumeMode === "text" && !resumeText.trim()) {
+      setError("Please paste your resume text.");
+      return;
+    }
+
+    if (jobMode === "text" && !jobDescription.trim()) {
+      setError("Please paste the job description.");
+      return;
+    }
+    if (jobMode === "file" && !jobDescriptionFile) {
+      setError("Please upload the JD file.");
+      return;
+    }
+    if (jobMode === "link" && !jobDescriptionUrl.trim()) {
+      setError("Please add a job link.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    const steps: Exclude<LoadingStep, "idle">[] = ["parsing", "matching", "analyzing", "done"];
+    let stepIndex = 0;
+    const timer = window.setInterval(() => {
+      if (stepIndex < steps.length) {
+        setStep(steps[stepIndex]);
+        stepIndex += 1;
+      } else {
+        window.clearInterval(timer);
+      }
+    }, 900);
+
+    try {
+      const formData = new FormData();
+
+      if (resumeMode === "file" && resumeFile) {
+        formData.append("resume_file", resumeFile);
+      } else {
+        formData.append("resume_text", resumeText);
+      }
+
+      if (jobMode === "text") {
+        formData.append("job_description", jobDescription);
+      } else if (jobMode === "file" && jobDescriptionFile) {
+        formData.append("job_description_file", jobDescriptionFile);
+      } else if (jobMode === "link") {
+        formData.append("job_description_url", jobDescriptionUrl.trim());
+      }
+
+      const response = await fetch(`${API}/api/analyze`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const payload = await response.json();
+        throw new Error(payload.detail || "Analysis failed. Please try again.");
+      }
+
+      const data = await response.json();
+      window.clearInterval(timer);
+
+      sessionStorage.setItem("analysisResult", JSON.stringify(data));
+      sessionStorage.setItem("jobDescription", data.job_description_text || jobDescription);
+      sessionStorage.setItem(
+        "jobDescriptionSourceLabel",
+        data.job_description_source_label ||
+          (jobMode === "file"
+            ? jobDescriptionFile?.name || "Uploaded JD"
+            : jobMode === "link"
+              ? getDomainLabel(jobDescriptionUrl)
+              : "Pasted job description")
+      );
+
+      router.push("/dashboard");
+    } catch (submitError: unknown) {
+      window.clearInterval(timer);
+      setStep("idle");
+      setLoading(false);
+      setError(submitError instanceof Error ? submitError.message : "Something went wrong. Is the backend running?");
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-primary)", position: "relative", overflow: "hidden" }}>
+      <div className="orb orb-1" style={{ top: "-220px", right: "-120px", opacity: 0.5 }} />
+      <div className="orb orb-2" style={{ bottom: "2%", left: "-120px", opacity: 0.5 }} />
+      <div className="orb orb-3" style={{ top: "18%", left: "12%", opacity: 0.35 }} />
+
+      <nav className="nav-blur" style={{ position: "fixed", inset: "0 0 auto 0", zIndex: 100, padding: "0 24px" }}>
+        <div style={{ maxWidth: 1160, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 68 }}>
+          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 11,
+                background: "linear-gradient(135deg, #0ea5e9, #6366f1)",
+                display: "grid",
+                placeItems: "center",
+                fontWeight: 800,
+              }}
+            >
+              AI
+            </div>
+            <span style={{ fontFamily: "var(--font-space)", fontWeight: 700, fontSize: "1.02rem" }}>
+              Career<span className="gradient-text">Copilot</span>
+            </span>
+          </Link>
+          <Link href="/" className="btn-secondary" style={{ padding: "10px 16px", fontSize: "0.84rem", textDecoration: "none" }}>
+            Home
+          </Link>
+        </div>
+      </nav>
+
+      <div style={{ maxWidth: 1160, margin: "0 auto", padding: "112px 24px 80px", position: "relative", zIndex: 1 }}>
+        <div
+          className="glass-card animate-fade-in-up"
+          style={{
+            padding: "28px clamp(22px, 4vw, 40px)",
+            marginBottom: 26,
+            background: "linear-gradient(135deg, rgba(14,165,233,0.08), rgba(99,102,241,0.08))",
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 18, alignItems: "center" }}>
+            <div>
+              <div style={{ color: "var(--accent-cyan)", fontSize: "0.82rem", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: 10 }}>
+                Role-fit workspace
+              </div>
+              <h1 style={{ fontSize: "clamp(2.2rem, 5vw, 3.8rem)", lineHeight: 1.05, marginBottom: 12 }}>
+                Analyze Your <span className="gradient-text">Career Fit</span>
+              </h1>
+              <p style={{ color: "var(--text-secondary)", maxWidth: 620, lineHeight: 1.7, fontSize: "1rem" }}>
+                Add your resume, then choose how you want to bring in the job description: paste it, upload the JD file, or drop in a LinkedIn or careers link.
+              </p>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 20,
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(6, 10, 24, 0.72)",
+                padding: 22,
+                display: "grid",
+                gap: 14,
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>What you can use now</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {[
+                  "Resume: PDF, DOCX, or pasted text",
+                  "Job description: text, TXT/PDF/DOCX, LinkedIn link, or any careers page",
+                  "Dashboard: interview prep, study roadmap, recruiter read, and ATS rewrite",
+                ].map((item) => (
+                  <div key={item} style={{ display: "flex", gap: 10, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                    <span style={{ color: "var(--accent-cyan)" }}>+</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 22 }} className="animate-fade-in-up delay-100">
+          <div className="glass-card" style={{ padding: 24, display: "grid", gap: 18 }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", textTransform: "uppercase", fontSize: "0.78rem", letterSpacing: "0.12em", marginBottom: 8 }}>
+                Candidate profile
+              </div>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 6 }}>Your resume</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6 }}>
+                Upload your latest resume or paste the raw text if you want to test quickly.
+              </p>
+            </div>
+
+            <SourceToggle
+              value={resumeMode}
+              onChange={(next) => {
+                setResumeMode(next);
+                setError("");
+              }}
+              options={[
+                { id: "file", label: "Upload resume", hint: "Best for PDF or DOCX files" },
+                { id: "text", label: "Paste text", hint: "Useful when you want a fast test run" },
+              ]}
+            />
+
+            {resumeMode === "file" ? (
+              <div
+                className={`drop-zone ${activeDropTarget === "resume" ? "active" : ""}`}
+                style={{ padding: "28px 20px", minHeight: 210, display: "grid", gap: 14, placeItems: "center", textAlign: "center" }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setActiveDropTarget("resume");
+                }}
+                onDragLeave={() => setActiveDropTarget(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleDrop("resume", event.dataTransfer.files?.[0]);
+                }}
+                onClick={() => resumeInputRef.current?.click()}
+              >
+                <input
+                  ref={resumeInputRef}
+                  type="file"
+                  accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  style={{ display: "none" }}
+                  onChange={(event) => handleDrop("resume", event.target.files?.[0])}
+                />
+                <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{resumeFile ? "Resume ready" : "Drop your resume here"}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.6 }}>
+                  {resumeFile ? supportedResumeHint : "Click to browse or drag a PDF / DOCX file into this card."}
+                </div>
+                <div className="chip chip-indigo">{supportedResumeHint}</div>
+              </div>
+            ) : (
+              <textarea
+                className="input-glass"
+                placeholder="Paste your resume text here..."
+                value={resumeText}
+                onChange={(event) => setResumeText(event.target.value)}
+                style={{ minHeight: 230, resize: "vertical", lineHeight: 1.65 }}
+              />
+            )}
+          </div>
+
+          <div className="glass-card" style={{ padding: 24, display: "grid", gap: 18 }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", textTransform: "uppercase", fontSize: "0.78rem", letterSpacing: "0.12em", marginBottom: 8 }}>
+                Target role input
+              </div>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 6 }}>Job description</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6 }}>
+                Choose the source that matches how you found the role. LinkedIn links and uploaded JD files are supported now.
+              </p>
+            </div>
+
+            <SourceToggle
+              value={jobMode}
+              onChange={(next) => {
+                setJobMode(next);
+                setError("");
+              }}
+              options={[
+                { id: "text", label: "Paste JD", hint: "Good for quick copy-paste from any site" },
+                { id: "file", label: "Upload JD file", hint: "TXT, PDF, DOCX, or Markdown" },
+                { id: "link", label: "Use job link", hint: "LinkedIn, careers page, or any public URL" },
+              ]}
+            />
+
+            {jobMode === "text" ? (
+              <textarea
+                className="input-glass"
+                placeholder="Paste the full JD here from LinkedIn, Indeed, or the company careers page..."
+                value={jobDescription}
+                onChange={(event) => setJobDescription(event.target.value)}
+                style={{ minHeight: 230, resize: "vertical", lineHeight: 1.65 }}
+              />
+            ) : null}
+
+            {jobMode === "file" ? (
+              <div
+                className={`drop-zone ${activeDropTarget === "job" ? "active" : ""}`}
+                style={{ padding: "28px 20px", minHeight: 210, display: "grid", gap: 14, placeItems: "center", textAlign: "center" }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setActiveDropTarget("job");
+                }}
+                onDragLeave={() => setActiveDropTarget(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleDrop("job", event.dataTransfer.files?.[0]);
+                }}
+                onClick={() => jobInputRef.current?.click()}
+              >
+                <input
+                  ref={jobInputRef}
+                  type="file"
+                  accept=".txt,.md,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  style={{ display: "none" }}
+                  onChange={(event) => handleDrop("job", event.target.files?.[0])}
+                />
+                <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>{jobDescriptionFile ? "JD file ready" : "Drop the job description file here"}</div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.6 }}>
+                  {jobDescriptionFile ? supportedJobHint : "Click to browse or drag a TXT, PDF, or DOCX JD file into this card."}
+                </div>
+                <div className="chip chip-cyan">{supportedJobHint}</div>
+              </div>
+            ) : null}
+
+            {jobMode === "link" ? (
+              <div style={{ display: "grid", gap: 12 }}>
+                <input
+                  className="input-glass"
+                  type="url"
+                  placeholder="https://www.linkedin.com/jobs/view/... or any careers page"
+                  value={jobDescriptionUrl}
+                  onChange={(event) => setJobDescriptionUrl(event.target.value)}
+                />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {["LinkedIn", "Indeed", "Company careers page"].map((label) => (
+                    <span key={label} className="chip chip-cyan">
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.86rem", lineHeight: 1.6 }}>
+                  Add the public job link and the backend will try to extract the JD text automatically.
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                borderRadius: 16,
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.02)",
+                padding: 16,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>Current JD source</div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.6 }}>{supportedJobHint}</div>
+            </div>
+          </div>
+        </div>
+
+        {error ? (
+          <div
+            style={{
+              marginTop: 18,
+              padding: "14px 18px",
+              borderRadius: 14,
+              border: "1px solid rgba(244,63,94,0.24)",
+              background: "rgba(244,63,94,0.10)",
+              color: "#fda4af",
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="glass-card animate-fade-in" style={{ marginTop: 24, padding: "24px 26px" }}>
+            <div style={{ display: "grid", gap: 14 }}>
+              {LOADING_STEPS.map((item) => {
+                const order = ["parsing", "matching", "analyzing", "done"];
+                const currentIndex = order.indexOf(step);
+                const itemIndex = order.indexOf(item.key);
+                const isActive = item.key === step;
+                const isDone = itemIndex < currentIndex;
+                return (
+                  <div
+                    key={item.key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 14,
+                      opacity: itemIndex <= currentIndex ? 1 : 0.35,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 12,
+                        display: "grid",
+                        placeItems: "center",
+                        border: isDone
+                          ? "1px solid rgba(16,185,129,0.4)"
+                          : isActive
+                            ? "1px solid rgba(34,211,238,0.4)"
+                            : "1px solid var(--border-subtle)",
+                        background: isDone
+                          ? "rgba(16,185,129,0.12)"
+                          : isActive
+                            ? "rgba(34,211,238,0.08)"
+                            : "rgba(255,255,255,0.02)",
+                      }}
+                    >
+                      {isDone ? "OK" : isActive ? <div className="spinner" /> : item.key.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div style={{ color: isActive ? "var(--text-primary)" : "var(--text-secondary)", fontSize: "0.92rem" }}>{item.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {!loading ? (
+          <div style={{ display: "grid", justifyContent: "center", marginTop: 28 }} className="animate-fade-in-up delay-200">
+            <button className="btn-primary" type="button" onClick={handleSubmit} style={{ padding: "18px 58px", fontSize: "1.02rem" }}>
+              Analyze My Career Fit
+            </button>
+          </div>
+        ) : null}
+
+        <p style={{ textAlign: "center", marginTop: 20, color: "var(--text-muted)", fontSize: "0.82rem" }}>
+          Your files are processed in memory for the analysis flow and are not stored permanently.
+        </p>
+      </div>
+    </div>
+  );
 }

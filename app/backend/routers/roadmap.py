@@ -1,101 +1,222 @@
-from fastapi import APIRouter, HTTPException
-from models.schemas import RoadmapRequest, RoadmapResponse, RoadmapWeek
-from services.groq_client import groq_chat
-import re
 import json
+import re
+from urllib.parse import quote_plus
+
+from fastapi import APIRouter
+
+from models.schemas import RoadmapRequest, RoadmapResponse, RoadmapWeek, StudyTopic
+from services.groq_client import groq_chat
 
 router = APIRouter()
 
 ROADMAP_SYSTEM = """You are a strategic career development advisor.
-Create actionable, specific 30/60-day career roadmaps.
+Create clear, practical study roadmaps that help a candidate close role-specific skill gaps.
 Always respond with valid JSON only."""
 
-ROADMAP_USER_TEMPLATE = """Create a detailed career improvement roadmap for a candidate with these skill gaps.
+ROADMAP_USER_TEMPLATE = """Create a focused study roadmap for this candidate.
 
-Skill Gaps: {skill_gaps}
-Current Role: {current_role}
-Target Role: {target_role}
+Skill gaps: {skill_gaps}
+Current role: {current_role}
+Target role: {target_role}
 
-Respond in JSON format:
+Respond in JSON:
 {{
+  "headline": "One sentence summary of the study strategy",
+  "study_plan": [
+    {{
+      "topic": "specific skill or topic to study",
+      "priority": "high | medium | low",
+      "why_it_matters": "why this topic matters for the target role",
+      "estimated_time": "for example 5-7 days",
+      "study_actions": ["action 1", "action 2", "action 3"],
+      "practice_task": "a concrete task or mini project"
+    }}
+  ],
   "thirty_day_plan": [
     {{
       "week": "Week 1",
-      "focus": "Focus area title",
-      "actions": ["Action 1", "Action 2", "Action 3"],
-      "resources": ["Resource name/URL"]
+      "focus": "theme for the week",
+      "actions": ["action 1", "action 2"],
+      "resources": ["resource suggestion"]
     }}
   ],
   "sixty_day_plan": [
     {{
       "week": "Week 5",
-      "focus": "Focus area title",
-      "actions": ["Action 1", "Action 2"],
-      "resources": ["Resource name/URL"]
+      "focus": "theme for the week",
+      "actions": ["action 1", "action 2"],
+      "resources": ["resource suggestion"]
     }}
   ],
-  "certifications": ["Recommended cert 1", "Recommended cert 2"],
-  "projects": ["Suggested project 1 with brief description", "Project 2"]
+  "certifications": ["optional cert"],
+  "projects": ["portfolio project idea"]
 }}
 
-30-day plan = Weeks 1-4 (foundations)
-60-day plan = Weeks 5-8 (advanced application)
+Rules:
+- Make the roadmap concrete and skill-based, not vague.
+- Prefer 4 to 6 study topics.
+- Make weekly actions realistic for a working candidate.
 """
+
+
+def _search_link(query: str, platform: str) -> str:
+    encoded = quote_plus(query)
+    if platform == "google":
+        return f"https://www.google.com/search?q={encoded}"
+    return f"https://www.youtube.com/results?search_query={encoded}"
+
+
+def _estimate_time(topic: str) -> str:
+    lowered = topic.lower()
+    if any(keyword in lowered for keyword in ["system design", "architecture", "cloud", "kubernetes", "aws"]):
+        return "7-10 days"
+    if any(keyword in lowered for keyword in ["react", "node", "python", "testing", "sql", "api"]):
+        return "4-6 days"
+    return "3-5 days"
+
+
+def _build_topic(skill: str, index: int, target_role: str) -> StudyTopic:
+    priority = "high" if index < 2 else "medium" if index < 4 else "low"
+    role_label = target_role or "your target role"
+    search_query = f"{skill} tutorial for {role_label}".strip()
+    return StudyTopic(
+        topic=skill,
+        priority=priority,
+        why_it_matters=f"{skill} keeps appearing as an important requirement for {role_label}. Strength here will improve both interview confidence and on-the-job readiness.",
+        estimated_time=_estimate_time(skill),
+        study_actions=[
+            f"Learn the fundamentals and common interview concepts for {skill}.",
+            f"Build one small hands-on exercise that proves you can apply {skill}.",
+            f"Write down project stories, tradeoffs, and metrics so you can speak about {skill} clearly in interviews.",
+        ],
+        practice_task=f"Create a mini project or walkthrough that shows how you would use {skill} in a real work scenario.",
+        google_link=_search_link(search_query, "google"),
+        youtube_link=_search_link(f"{skill} project tutorial", "youtube"),
+    )
+
+
+def _default_skill_gaps(request: RoadmapRequest) -> list[str]:
+    cleaned = [skill.strip() for skill in request.skill_gaps if skill and skill.strip()]
+    if cleaned:
+        return list(dict.fromkeys(cleaned))[:6]
+
+    target_role = (request.target_role or "").strip()
+    if target_role:
+        return [
+            f"{target_role} fundamentals",
+            f"{target_role} project practice",
+            "Interview storytelling",
+            "Portfolio proof",
+        ]
+
+    return ["Core role fundamentals", "Interview storytelling", "Project practice", "Portfolio proof"]
+
+
+def _build_week_plan(topic: StudyTopic, week_label: str) -> RoadmapWeek:
+    return RoadmapWeek(
+        week=week_label,
+        focus=topic.topic,
+        actions=topic.study_actions,
+        resources=[topic.google_link, topic.youtube_link],
+    )
+
+
+def _build_default_roadmap(request: RoadmapRequest) -> RoadmapResponse:
+    topics = [_build_topic(skill, index, request.target_role or "") for index, skill in enumerate(_default_skill_gaps(request))]
+    first_half = topics[: min(3, len(topics))]
+    second_half = topics[min(3, len(topics)) :] or topics[:2]
+
+    thirty_day_plan = [
+        _build_week_plan(topic, f"Week {index + 1}")
+        for index, topic in enumerate(first_half)
+    ]
+    sixty_day_plan = [
+        _build_week_plan(topic, f"Week {index + 5}")
+        for index, topic in enumerate(second_half)
+    ]
+
+    role_label = request.target_role or "your target role"
+    return RoadmapResponse(
+        headline=f"Focus first on the highest-impact gaps for {role_label}, then turn them into project proof and interview stories.",
+        study_plan=topics,
+        thirty_day_plan=thirty_day_plan,
+        sixty_day_plan=sixty_day_plan,
+        certifications=[
+            f"Look for one role-relevant certification or structured course tied to {topics[0].topic}."
+        ] if topics else [],
+        projects=[
+            f"Build one portfolio project that demonstrates {topic.topic} in a way that matches {role_label}."
+            for topic in topics[:3]
+        ],
+    )
+
+
+def _parse_weeks(weeks_data: list[dict]) -> list[RoadmapWeek]:
+    return [
+        RoadmapWeek(
+            week=week.get("week", ""),
+            focus=week.get("focus", ""),
+            actions=week.get("actions", []),
+            resources=week.get("resources", []),
+        )
+        for week in weeks_data
+    ]
 
 
 @router.post("/roadmap", response_model=RoadmapResponse)
 async def generate_roadmap(request: RoadmapRequest):
-    if not request.skill_gaps:
-        raise HTTPException(status_code=400, detail="No skill gaps provided.")
-
+    normalized_gaps = _default_skill_gaps(request)
     prompt = ROADMAP_USER_TEMPLATE.format(
-        skill_gaps=", ".join(request.skill_gaps),
+        skill_gaps=", ".join(normalized_gaps),
         current_role=request.current_role or "Not specified",
         target_role=request.target_role or "Not specified",
     )
 
-    raw = groq_chat(ROADMAP_SYSTEM, prompt, temperature=0.4)
-    raw = re.sub(r"```json\s*", "", raw)
-    raw = re.sub(r"```\s*", "", raw).strip()
-
+    parsed_result: dict = {}
     try:
-        result = json.loads(raw)
-        
-        def parse_weeks(weeks_data):
-            return [
-                RoadmapWeek(
-                    week=w.get("week", ""),
-                    focus=w.get("focus", ""),
-                    actions=w.get("actions", []),
-                    resources=w.get("resources", []),
-                )
-                for w in weeks_data
-            ]
+        raw = groq_chat(ROADMAP_SYSTEM, prompt, temperature=0.35)
+        raw = re.sub(r"```json\s*", "", raw)
+        raw = re.sub(r"```\s*", "", raw).strip()
+        parsed_result = json.loads(raw)
+    except Exception:
+        parsed_result = {}
 
-        return RoadmapResponse(
-            thirty_day_plan=parse_weeks(result.get("thirty_day_plan", [])),
-            sixty_day_plan=parse_weeks(result.get("sixty_day_plan", [])),
-            certifications=result.get("certifications", []),
-            projects=result.get("projects", []),
+    fallback = _build_default_roadmap(request)
+
+    study_plan_payload = parsed_result.get("study_plan", []) if isinstance(parsed_result, dict) else []
+    study_plan = []
+    for index, item in enumerate(study_plan_payload):
+        topic = (item.get("topic") or "").strip()
+        if not topic:
+            continue
+        search_query = f"{topic} tutorial for {request.target_role or 'job interview prep'}"
+        study_plan.append(
+            StudyTopic(
+                topic=topic,
+                priority=item.get("priority", "medium"),
+                why_it_matters=item.get("why_it_matters", ""),
+                estimated_time=item.get("estimated_time", _estimate_time(topic)),
+                study_actions=item.get("study_actions", []),
+                practice_task=item.get("practice_task", ""),
+                google_link=_search_link(search_query, "google"),
+                youtube_link=_search_link(f"{topic} tutorial", "youtube"),
+            )
         )
-    except (json.JSONDecodeError, Exception) as e:
-        return RoadmapResponse(
-            thirty_day_plan=[
-                RoadmapWeek(
-                    week="Week 1-4",
-                    focus="Core Skill Development",
-                    actions=["Identify online courses for missing skills", "Set daily learning goals", "Join relevant communities"],
-                    resources=["Coursera", "Udemy", "YouTube"],
-                )
-            ],
-            sixty_day_plan=[
-                RoadmapWeek(
-                    week="Week 5-8",
-                    focus="Practical Application",
-                    actions=["Build a portfolio project", "Contribute to open source", "Apply for target roles"],
-                    resources=["GitHub", "LinkedIn", "Job boards"],
-                )
-            ],
-            certifications=["Relevant industry certification"],
-            projects=["Build a project demonstrating target skills"],
-        )
+
+    if len(study_plan) < 4:
+        existing_topics = {topic.topic.lower() for topic in study_plan}
+        for topic in fallback.study_plan:
+            if topic.topic.lower() in existing_topics:
+                continue
+            study_plan.append(topic)
+            if len(study_plan) >= 5:
+                break
+
+    return RoadmapResponse(
+        headline=parsed_result.get("headline", "") or fallback.headline,
+        study_plan=study_plan or fallback.study_plan,
+        thirty_day_plan=_parse_weeks(parsed_result.get("thirty_day_plan", [])) or fallback.thirty_day_plan,
+        sixty_day_plan=_parse_weeks(parsed_result.get("sixty_day_plan", [])) or fallback.sixty_day_plan,
+        certifications=parsed_result.get("certifications", []) or fallback.certifications,
+        projects=parsed_result.get("projects", []) or fallback.projects,
+    )
