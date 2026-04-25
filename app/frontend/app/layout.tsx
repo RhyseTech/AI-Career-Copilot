@@ -13,10 +13,10 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "AI Career Copilot — Your Autonomous Career OS",
+  title: "AI Career Copilot - Your Autonomous Career OS",
   description:
-    "Not a resume builder. An AI decision engine and execution system for career success. Parse, match, optimize, and launch your career.",
-  keywords: "AI resume, career optimization, ATS, skill gap analysis, SAP jobs, career copilot",
+    "Not a resume builder. An AI decision engine and execution system for career success across frontend, backend, cloud, data, AI, SAP, QA, mobile, and security roles.",
+  keywords: "AI resume, career optimization, ATS, skill gap analysis, software engineer jobs, tech interview prep, career copilot",
 };
 
 export default function RootLayout({

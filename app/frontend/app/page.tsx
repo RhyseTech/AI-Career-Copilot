@@ -13,23 +13,26 @@ const FEATURES = [
   {
     icon: "🧠",
     title: "Resume Intelligence Engine",
-    desc: "Deep parsing of your resume into structured skills, experience, and impact metrics using AI.",
+    desc: "Deep parsing with career arc detection, impact quantification, and blind spot analysis using AI.",
     color: "var(--accent-indigo)",
     glow: "rgba(99,102,241,0.15)",
+    link: "/analyze",
   },
   {
     icon: "🎯",
     title: "Semantic Match Engine",
-    desc: "Goes beyond keywords — uses vector embeddings to understand true alignment between your profile and the role.",
+    desc: "Ontology-aware matching with explainable sub-scores across skills, experience, leadership, and tools.",
     color: "var(--accent-cyan)",
     glow: "rgba(6,182,212,0.12)",
+    link: "/analyze",
   },
   {
     icon: "🔍",
-    title: "Skill Gap Detector",
-    desc: "Pinpoints exactly what's missing, ranked by priority, with a learning path to close each gap.",
+    title: "ATS Emulator + Gap Detector",
+    desc: "Simulate how ATS systems score your resume, then pinpoint exactly what's missing with learning paths.",
     color: "var(--accent-violet)",
     glow: "rgba(139,92,246,0.12)",
+    link: "/analyze",
   },
   {
     icon: "✍️",
@@ -37,13 +40,15 @@ const FEATURES = [
     desc: "AI rewrites your bullets with quantified impact, ATS alignment, and role-specific keyword injection.",
     color: "var(--accent-green)",
     glow: "rgba(16,185,129,0.12)",
+    link: "/analyze",
   },
   {
     icon: "🎤",
     title: "Interview Intelligence",
-    desc: "10 personalized behavioral, technical, and situational questions with coaching tips for each.",
+    desc: "10 personalized behavioral, technical, and situational questions with ideal answers and coaching tips.",
     color: "var(--accent-amber)",
     glow: "rgba(245,158,11,0.12)",
+    link: "/analyze",
   },
   {
     icon: "🗺️",
@@ -51,6 +56,31 @@ const FEATURES = [
     desc: "30/60-day action plans with certifications, projects, and resources tailored to your exact gaps.",
     color: "var(--accent-rose)",
     glow: "rgba(244,63,94,0.12)",
+    link: "/analyze",
+  },
+  {
+    icon: "💰",
+    title: "Salary Intelligence",
+    desc: "AI-powered salary benchmarks, negotiation scripts, and total comp breakdown for any role and location.",
+    color: "var(--accent-amber)",
+    glow: "rgba(245,158,11,0.15)",
+    link: "/salary",
+  },
+  {
+    icon: "🔗",
+    title: "LinkedIn Optimizer",
+    desc: "AI rewrites your headline, about section, and skills for maximum recruiter discoverability.",
+    color: "var(--accent-cyan)",
+    glow: "rgba(6,182,212,0.15)",
+    link: "/linkedin",
+  },
+  {
+    icon: "🕵️",
+    title: "Recruiter Signal Intelligence",
+    desc: "See how recruiters perceive your profile — skip reasons, pile position, and shortlist fixes. First-in-market.",
+    color: "var(--accent-rose)",
+    glow: "rgba(244,63,94,0.15)",
+    link: "/recruiter",
   },
 ];
 
@@ -63,6 +93,48 @@ const COMPARISON = [
   { capability: "Career Roadmap", them: false, us: true },
   { capability: "Continuous Improvement", them: false, us: true },
   { capability: "Autonomous Execution", them: false, us: true },
+];
+
+const PRICING_PLANS = [
+  {
+    name: "Starter",
+    price: "Free",
+    subtitle: "Best for quick career checks",
+    badge: "Try Now",
+    tone: "chip-cyan",
+    features: [
+      "Resume + JD analysis",
+      "Skill gap detection",
+      "ATS score snapshot",
+      "Basic interview prep",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "₹999/mo",
+    subtitle: "Best for active job seekers",
+    badge: "Most Popular",
+    tone: "chip-indigo",
+    features: [
+      "Full multi-tab dashboard",
+      "ATS-friendly resume download",
+      "Expanded interview question bank",
+      "Salary, LinkedIn, and recruiter insights",
+    ],
+  },
+  {
+    name: "Teams",
+    price: "Custom",
+    subtitle: "Best for academies and placement cells",
+    badge: "For Organizations",
+    tone: "chip-amber",
+    features: [
+      "Bulk candidate analysis",
+      "Shared templates and playbooks",
+      "Role-specific coaching flows",
+      "Priority support and onboarding",
+    ],
+  },
 ];
 
 function AnimatedCounter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -229,13 +301,14 @@ export default function LandingPage() {
               Everything You Need to<br /><span className="gradient-text">Land the Role</span>
             </h2>
             <p style={{ color: "var(--text-secondary)", marginTop: 16, fontSize: "1.05rem" }}>
-              One system. Six intelligent engines. Zero manual work.
+              One system. Multiple intelligent engines. Zero manual work.
             </p>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
             {FEATURES.map((f, i) => (
-              <div key={i} className="glass-card" style={{ padding: 28 }}>
+              <Link key={i} href={f.link || "/analyze"} style={{ textDecoration: "none" }}>
+              <div className="glass-card" style={{ padding: 28, height: "100%" }}>
                 <div style={{
                   width: 52, height: 52, borderRadius: 14,
                   background: f.glow, border: `1px solid ${f.color}30`,
@@ -247,6 +320,50 @@ export default function LandingPage() {
                 <h3 style={{ fontSize: "1.05rem", fontWeight: 600, marginBottom: 8, color: "var(--text-primary)" }}>{f.title}</h3>
                 <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)", lineHeight: 1.65 }}>{f.desc}</p>
                 <div style={{ marginTop: 16, height: 2, borderRadius: 1, background: `linear-gradient(90deg, ${f.color}, transparent)`, width: "40%" }} />
+              </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section style={{ padding: "80px 24px", position: "relative", zIndex: 1 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 48 }}>
+            <span className="chip chip-indigo" style={{ marginBottom: 16 }}>Pricing</span>
+            <h2 style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.8rem)", fontWeight: 700 }}>
+              Choose the <span className="gradient-text">Right Plan</span>
+            </h2>
+            <p style={{ color: "var(--text-secondary)", marginTop: 16, fontSize: "1.02rem" }}>
+              Start free, upgrade when you need deeper optimization and downloadable ATS-ready outputs.
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            {PRICING_PLANS.map((plan) => (
+              <div key={plan.name} className={`glass-card ${plan.name === "Pro" ? "glow-indigo" : ""}`} style={{ padding: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700 }}>{plan.name}</h3>
+                  <span className={`chip ${plan.tone}`}>{plan.badge}</span>
+                </div>
+                <div style={{ fontSize: "2rem", fontWeight: 800, marginBottom: 6 }} className={plan.name === "Pro" ? "gradient-text" : ""}>
+                  {plan.price}
+                </div>
+                <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6, marginBottom: 18 }}>{plan.subtitle}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+                  {plan.features.map((feature) => (
+                    <div key={feature} style={{ display: "flex", gap: 10, color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.55 }}>
+                      <span style={{ color: "var(--accent-green)", flexShrink: 0 }}>✓</span>
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+                <Link href="/analyze">
+                  <button className={plan.name === "Pro" ? "btn-primary" : "btn-secondary"} style={{ width: "100%", padding: "14px 18px", fontSize: "0.92rem" }}>
+                    {plan.name === "Teams" ? "Contact Sales" : "Start Now"}
+                  </button>
+                </Link>
               </div>
             ))}
           </div>
