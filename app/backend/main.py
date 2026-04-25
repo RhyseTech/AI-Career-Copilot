@@ -6,12 +6,13 @@ import os
 
 load_dotenv()
 
-from routers import analyze, optimize, interview, roadmap
+from routers import analyze, optimize, interview, roadmap, ats, salary, linkedin, recruiter
 
 app = FastAPI(
     title="AI Career Copilot API",
-    description="Autonomous career optimization system powered by Groq/Llama3",
-    version="1.0.0",
+    description="Autonomous career optimization system — not a resume builder. "
+                "Powered by Groq/Llama3 + sentence-transformers.",
+    version="2.0.0",
 )
 
 # CORS — allow frontend dev server
@@ -24,16 +25,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
+# Core Routers (Phase 1 — MVP)
 app.include_router(analyze.router, prefix="/api", tags=["Analysis"])
 app.include_router(optimize.router, prefix="/api", tags=["Optimization"])
 app.include_router(interview.router, prefix="/api", tags=["Interview"])
 app.include_router(roadmap.router, prefix="/api", tags=["Roadmap"])
+app.include_router(ats.router, prefix="/api", tags=["ATS Emulator"])
+
+# Intelligence Routers (Phase 2)
+app.include_router(salary.router, prefix="/api", tags=["Salary Intelligence"])
+app.include_router(linkedin.router, prefix="/api", tags=["LinkedIn Optimizer"])
+app.include_router(recruiter.router, prefix="/api", tags=["Recruiter Signal"])
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "message": "AI Career Copilot API is running"}
+    return {
+        "status": "ok",
+        "message": "AI Career Copilot API is running",
+        "version": "2.0.0",
+        "endpoints": [
+            "/api/analyze", "/api/optimize", "/api/interview", "/api/roadmap",
+            "/api/ats-score", "/api/salary", "/api/linkedin-optimize", "/api/recruiter-signal",
+        ],
+    }
 
 
 @app.exception_handler(Exception)
