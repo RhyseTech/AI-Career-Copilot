@@ -31,7 +31,7 @@ export default function AgentPage() {
   const [result, setResult] = useState<AgentResult>({});
 
   const token = typeof window !== "undefined" ? localStorage.getItem("careerCopilotToken") || "" : "";
-  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
   const runPlan = async () => {
     setLoading("plan");

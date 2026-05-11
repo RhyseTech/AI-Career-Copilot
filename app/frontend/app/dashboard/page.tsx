@@ -1689,9 +1689,9 @@ export default function DashboardPage() {
 
                 <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.86rem", lineHeight: 1.75, color: "var(--text-secondary)", margin: 0 }}>{optimizedResume}</pre>
               </div>
-            ) : loadingTab !== "resume" ? (
+            ) : (
               <p style={{ color: "var(--text-muted)" }}>Open this tab to generate the optimized resume.</p>
-            ) : null}
+            )}
           </div>
         ) : null}
 
