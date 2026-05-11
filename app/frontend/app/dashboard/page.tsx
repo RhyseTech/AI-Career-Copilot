@@ -1310,6 +1310,28 @@ export default function DashboardPage() {
       setLoadingTab(null);
     }
   }
+
+  async function loadSalary(data: AnalysisResult) {
+    if (salary) return;
+    setLoadingTab("salary");
+    setTabErrors((prev) => ({ ...prev, salary: undefined }));
+    try {
+      const payload = await fetchJson<SalaryResponse>(`${API}/api/salary`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role_title: data.jd_parsed?.role_title || "Target role",
+          location: (data as any).location || "India",
+          seniority: data.jd_seniority || "mid",
+          years_experience: data.jd_parsed?.years_of_experience || "3-5",
+          key_skills: data.jd_required_skills.slice(0, 10),
+        }),
+      });
+      setSalary(payload);
+    } catch (error) {
+      setTabErrors((prev) => ({ ...prev, salary: error instanceof Error ? error.message : "Unable to load salary insight." }));
+    } finally {
+      setLoadingTab(null);
     }
   }
 
@@ -1575,25 +1597,37 @@ export default function DashboardPage() {
                   if (!result) return;
                   const nextMode = !maxAtsMode;
                   setMaxAtsMode(nextMode);
-                  setOptimizedResume("");
-                  setKeyChanges([]);
-                  setResumeAtsScore(0);
-                  setDownloadResume(null);
                   void loadResumeOptimization(result, true, nextMode);
                 }}
-                disabled={loadingTab === "resume"}
               >
-                Max ATS Mode: {maxAtsMode ? "ON" : "OFF"}
+                {maxAtsMode ? "Strict ATS (Active)" : "Switch to Strict ATS"}
               </button>
-              <span className="chip chip-cyan">{maxAtsMode ? "Strict ATS format + keyword enforcement" : "Balanced rewrite mode"}</span>
+              <button
+                className={!maxAtsMode ? "btn-primary" : "btn-secondary"}
+                style={{ padding: "10px 14px", fontSize: "0.84rem" }}
+                onClick={() => {
+                  if (!result) return;
+                  const nextMode = false;
+                  setMaxAtsMode(nextMode);
+                  void loadResumeOptimization(result, true, nextMode);
+                }}
+              >
+                {!maxAtsMode ? "Balanced Layout (Active)" : "Switch to Balanced"}
+              </button>
             </div>
+
             {tabErrors.resume ? <AlertCard message={tabErrors.resume} /> : null}
-            {loadingTab === "resume" ? <div className="spinner" /> : null}
-            {optimizedResume ? (
-              <div style={{ display: "grid", gap: 18 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-                  <StatCard label="Estimated ATS" value={`${resumeAtsScore}%`} tone="green" />
-                  <StatCard label="Changes applied" value={keyChanges.length} tone="indigo" />
+
+            {loadingTab === "resume" ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 0" }}>
+                <div className="spinner" />
+                <span style={{ color: "var(--text-secondary)" }}>Re-writing resume sections for peak ATS performance...</span>
+              </div>
+            ) : optimizedResume ? (
+              <div style={{ display: "grid", gap: 22 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
+                  <StatCard label="Estimated ATS score" value={`${resumeAtsScore}%`} tone="indigo" />
+                  <StatCard label="Key changes" value={keyChanges.length} tone="cyan" />
                 </div>
 
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
