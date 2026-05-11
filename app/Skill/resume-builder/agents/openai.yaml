@@ -1,0 +1,4 @@
+interface:
+  display_name: "Resume Builder"
+  short_description: "Clone ATS resume templates with strict spacing"
+  default_prompt: "Use this skill to create or fix resume outputs so they match the target template structure, spacing, and typography exactly."

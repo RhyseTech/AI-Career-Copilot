@@ -66,6 +66,37 @@ def _search_link(query: str, platform: str) -> str:
     return f"https://www.youtube.com/results?search_query={encoded}"
 
 
+YOUTUBE_TOP_RESOURCES = [
+    (("python",), "https://www.youtube.com/watch?v=rfscVS0vtbw"),
+    (("java",), "https://www.youtube.com/watch?v=eIrMbAQSU34"),
+    (("node", "node.js"), "https://www.youtube.com/watch?v=TlB_eWDSMt4"),
+    (("react",), "https://www.youtube.com/watch?v=bMknfKXIFA8"),
+    (("sql",), "https://www.youtube.com/watch?v=HXV3zeQKqGY"),
+    (("system design",), "https://www.youtube.com/watch?v=bUHFg8CZFws"),
+    (("docker",), "https://www.youtube.com/watch?v=3c-iBn73dDE"),
+    (("kubernetes", "k8s"), "https://www.youtube.com/watch?v=X48VuDVv0do"),
+    (("aws",), "https://www.youtube.com/watch?v=ulprqHHWlng"),
+]
+
+
+def _targeted_google_link(topic: str, role_label: str) -> str:
+    query = f"best {topic} tutorial for {role_label} with projects and interview prep"
+    return _search_link(query, "google")
+
+
+def _targeted_youtube_search_link(topic: str, role_label: str) -> str:
+    query = f"best {topic} full course with project for {role_label}"
+    return _search_link(query, "youtube")
+
+
+def _best_youtube_link(topic: str, role_label: str) -> str:
+    lowered = f"{topic} {role_label}".lower()
+    for keyword_group, url in YOUTUBE_TOP_RESOURCES:
+        if any(keyword in lowered for keyword in keyword_group):
+            return url
+    return _targeted_youtube_search_link(topic, role_label)
+
+
 def _estimate_time(topic: str) -> str:
     lowered = topic.lower()
     if any(keyword in lowered for keyword in ["system design", "architecture", "cloud", "kubernetes", "aws"]):
@@ -78,7 +109,6 @@ def _estimate_time(topic: str) -> str:
 def _build_topic(skill: str, index: int, target_role: str) -> StudyTopic:
     priority = "high" if index < 2 else "medium" if index < 4 else "low"
     role_label = target_role or "your target role"
-    search_query = f"{skill} tutorial for {role_label}".strip()
     return StudyTopic(
         topic=skill,
         priority=priority,
@@ -90,8 +120,8 @@ def _build_topic(skill: str, index: int, target_role: str) -> StudyTopic:
             f"Write down project stories, tradeoffs, and metrics so you can speak about {skill} clearly in interviews.",
         ],
         practice_task=f"Create a mini project or walkthrough that shows how you would use {skill} in a real work scenario.",
-        google_link=_search_link(search_query, "google"),
-        youtube_link=_search_link(f"{skill} project tutorial", "youtube"),
+        google_link=_targeted_google_link(skill, role_label),
+        youtube_link=_best_youtube_link(skill, role_label),
     )
 
 
@@ -174,7 +204,7 @@ async def generate_roadmap(request: RoadmapRequest):
 
     parsed_result: dict = {}
     try:
-        raw = groq_chat(ROADMAP_SYSTEM, prompt, temperature=0.35)
+        raw = groq_chat(ROADMAP_SYSTEM, prompt, temperature=0.35, max_tokens=1000)
         raw = re.sub(r"```json\s*", "", raw)
         raw = re.sub(r"```\s*", "", raw).strip()
         parsed_result = json.loads(raw)
@@ -189,7 +219,7 @@ async def generate_roadmap(request: RoadmapRequest):
         topic = (item.get("topic") or "").strip()
         if not topic:
             continue
-        search_query = f"{topic} tutorial for {request.target_role or 'job interview prep'}"
+        role_label = request.target_role or "job interview prep"
         study_plan.append(
             StudyTopic(
                 topic=topic,
@@ -198,8 +228,8 @@ async def generate_roadmap(request: RoadmapRequest):
                 estimated_time=item.get("estimated_time", _estimate_time(topic)),
                 study_actions=item.get("study_actions", []),
                 practice_task=item.get("practice_task", ""),
-                google_link=_search_link(search_query, "google"),
-                youtube_link=_search_link(f"{topic} tutorial", "youtube"),
+                google_link=_targeted_google_link(topic, role_label),
+                youtube_link=_best_youtube_link(topic, role_label),
             )
         )
 

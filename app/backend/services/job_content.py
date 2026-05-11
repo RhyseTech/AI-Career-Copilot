@@ -13,8 +13,8 @@ from services.resume_parser import (
 
 
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
 
@@ -94,10 +94,10 @@ def extract_text_from_job_url(url: str) -> str:
     else:
         extracted = _extract_text_from_html(response.text)
 
-    if len(extracted) < 180:
+    if len(extracted) < 250:
         raise ValueError(
-            "We could not extract enough job details from that link. "
-            "Please try the PDF upload or paste the JD text."
+            "We could not extract enough job details from that link. LinkedIn and some career sites block automated reading. "
+            "Please copy the Job Description text from the page and use the 'Paste JD' option instead."
         )
 
     return extracted

@@ -36,7 +36,8 @@ SKILL_KEYWORDS = {
     "Looker", "pandas", "NumPy", "scikit-learn", "TensorFlow", "PyTorch",
     "Machine Learning", "Deep Learning", "LLM", "RAG", "MLOps", "Computer Vision",
     "NLP", "Data Engineering", "Data Analytics", "Data Science", "ETL", "ELT",
-    "Feature Engineering", "A/B Testing",
+    "Feature Engineering", "A/B Testing", "Generative AI", "GenAI", "LangChain",
+    "LlamaIndex", "Vector Database", "Pinecone", "ChromaDB", "Milvus", "Hugging Face",
     # Testing & Quality
     "Testing", "Unit Testing", "Integration Testing", "Automation Testing", "QA",
     "Selenium", "Cypress", "Playwright", "Jest", "PyTest", "Postman", "JUnit",
@@ -49,6 +50,8 @@ SKILL_KEYWORDS = {
     "Leadership", "Communication", "Project Management", "Stakeholder Management",
     "Problem Solving", "Team Collaboration", "Change Management",
     "Strategic Planning", "Vendor Management", "Client Management",
+    "Emotional Intelligence", "Conflict Resolution", "Public Speaking",
+
 }
 
 

@@ -97,43 +97,55 @@ const COMPARISON = [
 
 const PRICING_PLANS = [
   {
-    name: "Starter",
-    price: "Free",
-    subtitle: "Best for quick career checks",
-    badge: "Try Now",
+    name: "Free",
+    price: "INR 0 / forever",
+    subtitle: "Try the core analysis before upgrading",
+    badge: "Start Free",
     tone: "chip-cyan",
     features: [
-      "Resume + JD analysis",
-      "Skill gap detection",
-      "ATS score snapshot",
-      "Basic interview prep",
+      "3 analyses per month",
+      "Resume + JD match score",
+      "Top missing skills list",
+      "Basic ATS score snapshot",
+      "No PDF download and no AI rewrite",
     ],
+    difference: "Best for trying the platform with usage limits.",
+    target: "Students, early explorers, viral loop",
+    cta: "Start Free",
   },
   {
     name: "Pro",
-    price: "₹999/mo",
-    subtitle: "Best for active job seekers",
+    price: "INR 500 / lifetime",
+    subtitle: "For serious job seekers who need full execution",
     badge: "Most Popular",
     tone: "chip-indigo",
     features: [
-      "Full multi-tab dashboard",
-      "ATS-friendly resume download",
-      "Expanded interview question bank",
-      "Salary, LinkedIn, and recruiter insights",
+      "Everything in Free",
+      "Unlimited analyses (no monthly cap)",
+      "ATS-optimized AI resume rewrite",
+      "PDF download with 3 resume templates",
+      "Interview prep + roadmap + salary + LinkedIn tools",
     ],
+    difference: "Unlocks unlimited use + downloadable ATS-ready resume.",
+    target: "Active job seekers, SAP professionals",
+    cta: "Start Pro",
   },
   {
-    name: "Teams",
-    price: "Custom",
-    subtitle: "Best for academies and placement cells",
-    badge: "For Organizations",
-    tone: "chip-amber",
+    name: "Career+",
+    price: "INR 1000 / lifetime",
+    subtitle: "For advanced users who want memory + automation",
+    badge: "Advanced",
+    tone: "chip-cyan",
     features: [
-      "Bulk candidate analysis",
-      "Shared templates and playbooks",
-      "Role-specific coaching flows",
-      "Priority support and onboarding",
+      "Everything in Pro",
+      "User memory, saved sessions, and progress tracking",
+      "Auto-draft emails and recruiter outreach assist",
+      "Peer benchmark + ghosting risk predictor",
+      "1 human resume review each month",
     ],
+    difference: "Adds Memory and Agent capabilities for long-term coaching.",
+    target: "Senior professionals, career pivoters",
+    cta: "Start Career+",
   },
 ];
 
@@ -153,17 +165,14 @@ function AnimatedCounter({ target, suffix = "" }: { target: number; suffix?: str
 }
 
 export default function LandingPage() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = true;
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)", position: "relative", overflow: "hidden" }}>
       {/* Background Orbs */}
       <div className="orb orb-1" style={{ top: "-200px", left: "-200px" }} />
       <div className="orb orb-2" style={{ top: "30%", right: "-150px" }} />
-      <div className="orb orb-3" style={{ bottom: "10%", left: "20%" }} />
-
-      {/* NAV */}
+      <div className="orb orb-3" style={{ bottom: "10%", left: "20%" }} />      {/* NAV */}
       <nav className="nav-blur" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "0 48px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -172,17 +181,17 @@ export default function LandingPage() {
               background: "linear-gradient(135deg, #6366f1, #06b6d4)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 18
-            }}>⚡</div>
+            }}>AI</div>
             <span style={{ fontFamily: "var(--font-space)", fontWeight: 700, fontSize: "1.1rem", color: "var(--text-primary)" }}>
               Career<span className="gradient-text">Copilot</span>
             </span>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <Link href="/analyze">
+            <Link href="/auth">
               <button className="btn-secondary" style={{ padding: "9px 20px", fontSize: "0.87rem" }}>Log In</button>
             </Link>
             <Link href="/analyze">
-              <button className="btn-primary" style={{ padding: "9px 20px", fontSize: "0.87rem" }}>Get Started Free →</button>
+              <button className="btn-primary" style={{ padding: "9px 20px", fontSize: "0.87rem" }}>Get Started Free</button>
             </Link>
           </div>
         </div>
@@ -208,7 +217,7 @@ export default function LandingPage() {
 
           <p className="animate-fade-in-up delay-200"
             style={{ fontSize: "1.2rem", color: "var(--text-secondary)", maxWidth: 650, margin: "0 auto 48px", lineHeight: 1.7 }}>
-            An autonomous AI system that analyzes your profile, detects exactly what's missing,
+            An autonomous AI system that analyzes your profile, detects exactly what&apos;s missing,
             rewrites your resume, and builds your career roadmap — in under 5 minutes.
           </p>
 
@@ -340,9 +349,9 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
             {PRICING_PLANS.map((plan) => (
-              <div key={plan.name} className={`glass-card ${plan.name === "Pro" ? "glow-indigo" : ""}`} style={{ padding: 28 }}>
+              <div key={plan.name} className={`glass-card ${plan.name === "Pro" ? "glow-indigo" : ""}`} style={{ padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
                   <h3 style={{ fontSize: "1.15rem", fontWeight: 700 }}>{plan.name}</h3>
                   <span className={`chip ${plan.tone}`}>{plan.badge}</span>
@@ -359,9 +368,15 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
+                <div style={{ color: "var(--text-muted)", fontSize: "0.78rem", lineHeight: 1.55, marginBottom: 14 }}>
+                  Target segment: {plan.target}
+                </div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem", lineHeight: 1.55, marginBottom: 16 }}>
+                  <strong>Plan difference:</strong> {plan.difference}
+                </div>
                 <Link href="/analyze">
                   <button className={plan.name === "Pro" ? "btn-primary" : "btn-secondary"} style={{ width: "100%", padding: "14px 18px", fontSize: "0.92rem" }}>
-                    {plan.name === "Teams" ? "Contact Sales" : "Start Now"}
+                    {plan.cta}
                   </button>
                 </Link>
               </div>
@@ -479,3 +494,8 @@ export default function LandingPage() {
     </div>
   );
 }
+
+
+
+
+

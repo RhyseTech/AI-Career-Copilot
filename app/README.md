@@ -1,12 +1,12 @@
-# AI Career Copilot ⚡
+# AI Career Copilot
 
-> **Not a resume builder.** An autonomous AI career execution system that analyzes, detects, optimizes, and launches your career — in under 5 minutes.
+> **Not a resume builder.** An autonomous AI career execution system that analyzes, detects, optimizes, and launches your career in under 5 minutes.
 
-Built by **RhyseTech** · Powered by Groq (Llama 3.1) + sentence-transformers · SAP-first, extensible to all domains
+Built by **RhyseTech**. Powered by Groq (Llama 3.1) + sentence-transformers.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Backend Setup
 ```bash
@@ -27,7 +27,7 @@ pip install -r requirements.txt
 # Download spaCy model
 python -m spacy download en_core_web_sm
 
-# Copy env and add your Groq API key (free at console.groq.com)
+# Copy env and add your Groq API key
 cp .env.example .env
 # Edit .env and add your GROQ_API_KEY
 
@@ -42,148 +42,150 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:3000** 🎉
+Open **http://localhost:3000**
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-```
+```text
 app/
-├── backend/
-│   ├── main.py                    # FastAPI entry point (v2.0)
-│   ├── .env                       # API keys (GROQ_API_KEY, GROQ_MODEL)
-│   ├── requirements.txt
-│   ├── routers/
-│   │   ├── analyze.py             # POST /api/analyze — full pipeline
-│   │   ├── optimize.py            # POST /api/optimize — resume rewriter
-│   │   ├── interview.py           # POST /api/interview — Q&A generator
-│   │   ├── roadmap.py             # POST /api/roadmap — 30/60-day plan
-│   │   ├── ats.py                 # POST /api/ats-score — ATS emulator
-│   │   ├── salary.py              # POST /api/salary — salary intelligence
-│   │   ├── linkedin.py            # POST /api/linkedin-optimize
-│   │   └── recruiter.py           # POST /api/recruiter-signal
-│   ├── services/
-│   │   ├── resume_parser.py       # PDF/DOCX/text → structured data
-│   │   ├── jd_parser.py           # JD → skills, seniority, requirements
-│   │   ├── match_engine.py        # Semantic + ontology-aware matching
-│   │   ├── gap_engine.py          # Skill gap analysis + learning paths
-│   │   ├── groq_client.py         # Groq API wrapper
-│   │   ├── skill_ontology.py      # Skill synonym/equivalence mapping
-│   │   ├── ats_emulator.py        # Rule-based ATS scoring (free)
-│   │   ├── blind_spot_detector.py # What's MISSING from your resume
-│   │   ├── confidence_scorer.py   # 5-dimension career confidence
-│   │   ├── salary_engine.py       # Salary benchmarks + negotiation
-│   │   ├── linkedin_optimizer.py  # LinkedIn profile rewriter
-│   │   └── recruiter_signal.py    # Recruiter perspective simulator
-│   └── models/
-│       └── schemas.py             # Pydantic request/response models
-├── frontend/
-│   ├── app/
-│   │   ├── page.tsx               # Landing page
-│   │   ├── layout.tsx             # Root layout + SEO
-│   │   ├── globals.css            # Design system
-│   │   ├── analyze/page.tsx       # Resume + JD input page
-│   │   └── dashboard/page.tsx     # Results dashboard (5 tabs)
-│   └── package.json
-├── test data/
-│   └── Fake-Resume.pdf
-├── Ai_Career_Copilot.md           # Full PRD
-└── README.md
+|-- backend/
+|   |-- main.py
+|   |-- requirements.txt
+|   |-- models/
+|   |   `-- schemas.py
+|   |-- routers/
+|   |   |-- analyze.py
+|   |   |-- optimize.py
+|   |   |-- interview.py
+|   |   |-- roadmap.py
+|   |   |-- ats.py
+|   |   |-- salary.py
+|   |   |-- linkedin.py
+|   |   |-- recruiter.py
+|   |   |-- memory.py          # NEW: accounts, sessions, progress
+|   |   `-- agent.py           # NEW: auto-apply planning, drafts, outreach
+|   |-- services/
+|   |   |-- memory_store.py    # NEW: sqlite-backed persistence
+|   |   `-- ...existing services
+|   `-- data/
+|       `-- .gitignore         # ignores sqlite db files
+|-- frontend/
+|   |-- app/
+|   |   |-- page.tsx
+|   |   |-- analyze/page.tsx
+|   |   |-- dashboard/page.tsx
+|   |   |-- auth/page.tsx      # NEW: login/register + memory summary
+|   |   `-- agent/page.tsx     # NEW: agent workspace
+|   `-- package.json
+`-- README.md
 ```
 
 ---
 
-## 🧠 Tech Stack
+## Tech Stack
 
 | Layer | Tech | Cost |
-|-------|------|------|
-| **Backend** | FastAPI + Python | Free |
-| **AI / LLM** | Groq API (Llama 3.1 8B Instant) | Free tier |
-| **Matching** | sentence-transformers (`all-MiniLM-L6-v2`) | Free |
-| **Resume Parsing** | pdfplumber + python-docx + regex | Free |
-| **NLP** | spaCy (`en_core_web_sm`) | Free |
-| **Frontend** | Next.js 16 (App Router) | Free |
-| **Design** | Vanilla CSS (dark glassmorphism) | Free |
-
-**Total infrastructure cost: $0** — All tools are open-source or free tier.
+|---|---|---|
+| Backend | FastAPI + Python | Free |
+| AI / LLM | Groq API (Llama 3.1 8B Instant) | Free tier |
+| Matching | sentence-transformers (`all-MiniLM-L6-v2`) | Free |
+| Resume Parsing | pdfplumber + python-docx + regex | Free |
+| NLP | spaCy (`en_core_web_sm`) | Free |
+| Frontend | Next.js 16 (App Router) | Free |
+| Data Store | SQLite (local file) | Free |
 
 ---
 
-## ✅ Features — Phase 1+2 MVP (Complete)
+## Features
 
-### Core Analysis Pipeline (`/api/analyze`)
-- ✅ **Resume Intelligence** — PDF, DOCX, and text parsing with skill extraction
-- ✅ **Career Arc Detection** — progression/stagnation analysis from role history
-- ✅ **Impact Quantification** — scores how well you demonstrate measurable results
-- ✅ **JD Analysis** — LLM-powered extraction of skills, seniority, hidden requirements
-- ✅ **Semantic Match Engine** — vector similarity + ontology-aware skill matching
-- ✅ **Explainable Sub-Scores** — skills, experience, leadership, tools breakdown
-- ✅ **Skill Gap Detection** — ranked by priority with learning paths
-- ✅ **Blind Spot Detector** — what's MISSING from your resume (unique differentiator)
-- ✅ **ATS Emulator** — rule-based scoring (sections, formatting, keywords, impact)
-- ✅ **Career Confidence Score** — 5-dimension holistic scoring
+### Core Analysis
+- Resume parsing (PDF, DOCX, text)
+- JD parsing and role-fit matching
+- Skill gap detection and quick wins
+- ATS scoring and blind spot detection
+- Confidence and impact scoring
 
-### Optimization & Preparation
-- ✅ **Resume Optimizer** (`/api/optimize`) — AI rewrite with ATS alignment
-- ✅ **Interview Intelligence** (`/api/interview`) — 10 personalized questions with ideal answers
-- ✅ **Career Roadmap** (`/api/roadmap`) — 30/60-day action plans with certifications
+### Optimization and Prep
+- Resume optimization (`/api/optimize`)
+- Interview question generation (`/api/interview`)
+- 30/60-day roadmap (`/api/roadmap`)
 
-### Phase 2 — Intelligence Layer
-- ✅ **Salary Intelligence** (`/api/salary`) — benchmarks, negotiation scripts, comp breakdown
-- ✅ **LinkedIn Optimizer** (`/api/linkedin-optimize`) — headline, about, skills rewrite
-- ✅ **Recruiter Signal Intelligence** (`/api/recruiter-signal`) — skip reasons, pile position, fixes
+### Intelligence Layer
+- Salary intelligence (`/api/salary`)
+- LinkedIn optimization (`/api/linkedin-optimize`)
+- Recruiter signal simulation (`/api/recruiter-signal`)
+
+### Memory Layer (Implemented)
+- User registration and login
+- Session persistence for analysis results
+- Progress event tracking and summary
+
+### Agent Layer (Implemented)
+- Auto-apply **planning** (dry run)
+- Application email drafting
+- Recruiter outreach drafting
 
 ---
 
-## 🔌 API Endpoints
+## API Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check + endpoint list |
-| `POST` | `/api/analyze` | Full career analysis pipeline |
-| `POST` | `/api/optimize` | AI resume optimization |
-| `POST` | `/api/interview` | Interview question generation |
-| `POST` | `/api/roadmap` | Career roadmap generation |
-| `POST` | `/api/ats-score` | ATS compatibility scoring |
-| `POST` | `/api/salary` | Salary intelligence |
-| `POST` | `/api/linkedin-optimize` | LinkedIn profile optimization |
-| `POST` | `/api/recruiter-signal` | Recruiter signal analysis |
+|---|---|---|
+| GET | `/health` | Health check |
+| POST | `/api/analyze` | Full career analysis |
+| POST | `/api/optimize` | Resume optimization |
+| POST | `/api/interview` | Interview questions |
+| POST | `/api/roadmap` | Study roadmap |
+| POST | `/api/ats-score` | ATS score |
+| POST | `/api/salary` | Salary intelligence |
+| POST | `/api/linkedin-optimize` | LinkedIn optimization |
+| POST | `/api/recruiter-signal` | Recruiter signal |
+| POST | `/api/memory/register` | Register account |
+| POST | `/api/memory/login` | Login account |
+| GET | `/api/memory/me` | Current user |
+| POST | `/api/memory/sessions` | Save analysis session |
+| GET | `/api/memory/sessions` | List saved sessions |
+| POST | `/api/memory/progress` | Track progress event |
+| GET | `/api/memory/progress` | Progress summary |
+| POST | `/api/agent/auto-apply-plan` | Build dry-run apply plan |
+| POST | `/api/agent/email-draft` | Draft application email |
+| POST | `/api/agent/recruiter-outreach` | Draft recruiter outreach |
 
-Interactive API docs: **http://localhost:8000/docs**
+Interactive docs: **http://localhost:8000/docs**
 
 ---
 
-## ⚙️ Environment Variables
+## Environment Variables
 
 ### Backend (`app/backend/.env`)
-```
+```env
 GROQ_API_KEY=your_key_here
 GROQ_MODEL=llama-3.1-8b-instant
+GROQ_MAX_TOKENS=900
 FRONTEND_URL=http://localhost:3000
 ```
 
 ### Frontend (`app/frontend/.env.local`)
-```
+```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Get a free Groq API key at: https://console.groq.com
-
 ---
 
-## 🗺️ Roadmap
+## Roadmap Status
 
 | Phase | Status | Features |
-|-------|--------|----------|
-| **P0 — MVP** | ✅ Done | Resume parser, JD analyzer, match engine, gap engine |
-| **P1 — Intelligence** | ✅ Done | ATS emulator, blind spots, confidence score, salary, LinkedIn, recruiter |
-| **P2 — Optimization** | ✅ Done | Resume optimizer, interview prep, career roadmap |
-| **P3 — Memory** | 🔮 Future | User accounts, session persistence, progress tracking |
-| **P4 — Agent** | 🔮 Future | Auto-apply, email drafting, recruiter outreach |
+|---|---|---|
+| P0 - MVP | Done | Resume parser, JD analyzer, match engine, gap engine |
+| P1 - Intelligence | Done | ATS, blind spots, confidence, salary, LinkedIn, recruiter |
+| P2 - Optimization | Done | Resume optimizer, interview prep, roadmap |
+| P3 - Memory | **Implemented** | Accounts, session persistence, progress tracking |
+| P4 - Agent | **Implemented** | Auto-apply planning, email drafting, recruiter outreach |
 
 ---
 
-## 📄 License
+## License
 
 Built by RhyseTech. All rights reserved.

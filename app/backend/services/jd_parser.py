@@ -34,7 +34,7 @@ def parse_job_description(jd_text: str) -> dict:
     """
     prompt = JD_USER_TEMPLATE.format(jd_text=jd_text[:4000])  # Trim for token limits
     
-    raw = groq_chat(JD_SYSTEM_PROMPT, prompt, temperature=0.1)
+    raw = groq_chat(JD_SYSTEM_PROMPT, prompt, temperature=0.1, max_tokens=800)
     
     # Strip any markdown code fences if present
     raw = re.sub(r"```json\s*", "", raw)

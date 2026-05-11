@@ -84,10 +84,48 @@ export default function AnalyzePage() {
   const [jobDescription, setJobDescription] = useState("");
   const [jobDescriptionFile, setJobDescriptionFile] = useState<File | null>(null);
   const [jobDescriptionUrl, setJobDescriptionUrl] = useState("");
+  const [location, setLocation] = useState("India");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [step, setStep] = useState<LoadingStep>("idle");
+
+  const persistToMemory = useCallback(async (analysisPayload: Record<string, unknown>, resolvedJobDescription: string) => {
+    const token = localStorage.getItem("careerCopilotToken");
+    if (!token) return;
+
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    };
+
+    try {
+      await fetch(`${API}/api/memory/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          title: ((analysisPayload.jd_parsed as { role_title?: string } | undefined)?.role_title || "Career analysis"),
+          analysis_result: analysisPayload,
+          job_description: resolvedJobDescription,
+        }),
+      });
+
+      await fetch(`${API}/api/memory/progress`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          event_type: "analysis_completed",
+          score: Number(analysisPayload.match_score || 0),
+          details: {
+            role_title: (analysisPayload.jd_parsed as { role_title?: string } | undefined)?.role_title || "",
+            skill_gaps: Array.isArray(analysisPayload.skill_gaps) ? analysisPayload.skill_gaps.length : 0,
+          },
+        }),
+      });
+    } catch {
+      // Keep the analysis flow non-blocking when memory persistence fails.
+    }
+  }, []);
 
   const supportedResumeHint = useMemo(
     () => (resumeFile ? `${resumeFile.name} - ${formatBytes(resumeFile.size)}` : "PDF or DOCX up to 10MB"),
@@ -204,6 +242,7 @@ export default function AnalyzePage() {
       } else if (jobMode === "link") {
         formData.append("job_description_url", jobDescriptionUrl.trim());
       }
+      formData.append("location", location);
 
       const response = await fetch(`${API}/api/analyze`, {
         method: "POST",
@@ -229,6 +268,7 @@ export default function AnalyzePage() {
               ? getDomainLabel(jobDescriptionUrl)
               : "Pasted job description")
       );
+      await persistToMemory(data as Record<string, unknown>, data.job_description_text || jobDescription);
 
       router.push("/dashboard");
     } catch (submitError: unknown) {
@@ -265,9 +305,14 @@ export default function AnalyzePage() {
               Career<span className="gradient-text">Copilot</span>
             </span>
           </Link>
-          <Link href="/" className="btn-secondary" style={{ padding: "10px 16px", fontSize: "0.84rem", textDecoration: "none" }}>
-            Home
-          </Link>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link href="/auth" className="btn-secondary" style={{ padding: "10px 16px", fontSize: "0.84rem", textDecoration: "none" }}>
+              Account
+            </Link>
+            <Link href="/" className="btn-secondary" style={{ padding: "10px 16px", fontSize: "0.84rem", textDecoration: "none" }}>
+              Home
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -309,6 +354,7 @@ export default function AnalyzePage() {
                   "Resume: PDF, DOCX, or pasted text",
                   "Job description: text, TXT/PDF/DOCX, LinkedIn link, or any careers page",
                   "Dashboard: interview prep, study roadmap, recruiter read, and ATS rewrite",
+                  "NEW: Target location benchmarks",
                 ].map((item) => (
                   <div key={item} style={{ display: "flex", gap: 10, color: "var(--text-secondary)", lineHeight: 1.6 }}>
                     <span style={{ color: "var(--accent-cyan)" }}>+</span>
@@ -481,6 +527,47 @@ export default function AnalyzePage() {
             >
               <div style={{ fontWeight: 600 }}>Current JD source</div>
               <div style={{ color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.6 }}>{supportedJobHint}</div>
+            </div>
+          </div>
+
+          <div className="glass-card" style={{ padding: 24, display: "grid", gap: 18 }}>
+            <div>
+              <div style={{ color: "var(--text-muted)", textTransform: "uppercase", fontSize: "0.78rem", letterSpacing: "0.12em", marginBottom: 8 }}>
+                Target Context
+              </div>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, marginBottom: 6 }}>Localized Insights</h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.6 }}>
+                Specify where the job is located to get relevant salary and market intelligence.
+              </p>
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Job Location</div>
+              <input
+                className="input-glass"
+                type="text"
+                placeholder="e.g. India, USA, Remote, London"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+              />
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", lineHeight: 1.5 }}>
+                Defaults to India. Change this to USA, Europe, etc. for accurate compensation data in the dashboard.
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: "auto",
+                borderRadius: 16,
+                border: "1px solid rgba(14,165,233,0.15)",
+                background: "linear-gradient(135deg, rgba(14,165,233,0.05), rgba(99,102,241,0.05))",
+                padding: 16,
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "var(--accent-cyan)", fontSize: "0.88rem", marginBottom: 6 }}>Pro Tip</div>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                Adding a specific city (e.g. "San Francisco" or "Bangalore") provides even more granular salary benchmarks.
+              </p>
             </div>
           </div>
         </div>

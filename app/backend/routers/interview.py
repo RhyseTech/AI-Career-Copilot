@@ -305,7 +305,7 @@ async def generate_interview_questions(request: InterviewRequest):
 
     llm_questions: list[InterviewQuestion] = []
     try:
-        raw = groq_chat(INTERVIEW_SYSTEM, prompt, temperature=0.45)
+        raw = groq_chat(INTERVIEW_SYSTEM, prompt, temperature=0.45, max_tokens=1800)
         raw = re.sub(r"```json\s*", "", raw)
         raw = re.sub(r"```\s*", "", raw).strip()
         result = json.loads(raw)

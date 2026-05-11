@@ -40,18 +40,46 @@ def detect_blind_spots(resume_text: str, jd_text: str, jd_skills: list[str] = No
     """
     Detect resume blind spots — what the candidate forgot to mention.
     """
-    jd_summary = jd_text[:2000]
+    jd_summary = jd_text[:1400]
     if jd_skills:
         jd_summary += f"\n\nKey skills required: {', '.join(jd_skills[:15])}"
 
     prompt = BLINDSPOT_TEMPLATE.format(
-        resume_text=resume_text[:3000],
+        resume_text=resume_text[:2200],
         jd_summary=jd_summary,
     )
 
-    raw = groq_chat(BLINDSPOT_SYSTEM, prompt, temperature=0.3)
-    raw = re.sub(r"```json\s*", "", raw)
-    raw = re.sub(r"```\s*", "", raw).strip()
+    try:
+        raw = groq_chat(BLINDSPOT_SYSTEM, prompt, temperature=0.3, max_tokens=700)
+        raw = re.sub(r"```json\s*", "", raw)
+        raw = re.sub(r"```\s*", "", raw).strip()
+    except Exception:
+        # Graceful fallback for rate limits/network/model issues.
+        fallback_blind_spots = []
+        for skill in (jd_skills or [])[:4]:
+            fallback_blind_spots.append(
+                {
+                    "category": "missing_skill",
+                    "title": f"Evidence missing for {skill}",
+                    "description": f"The resume does not clearly demonstrate {skill} in delivered outcomes.",
+                    "fix": f"Add one measurable bullet showing how you used {skill} and what result it produced.",
+                    "impact": "high",
+                }
+            )
+        if not fallback_blind_spots:
+            fallback_blind_spots.append(
+                {
+                    "category": "missing_section",
+                    "title": "Impact-focused evidence is thin",
+                    "description": "The resume could use clearer outcome-based bullets for role fit.",
+                    "fix": "Add quantified impact bullets tied to performance, delivery speed, or reliability.",
+                    "impact": "medium",
+                }
+            )
+        return {
+            "blind_spots": fallback_blind_spots,
+            "overall_assessment": "Blind spot analysis returned fallback output due to temporary AI service limits.",
+        }
 
     try:
         result = json.loads(raw)

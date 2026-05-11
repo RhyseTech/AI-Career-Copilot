@@ -56,7 +56,7 @@ def analyze_gaps(
         target_role=target_role or "Not specified",
     )
     
-    raw = groq_chat(GAP_SYSTEM_PROMPT, prompt, temperature=0.2)
+    raw = groq_chat(GAP_SYSTEM_PROMPT, prompt, temperature=0.2, max_tokens=900)
     raw = re.sub(r"```json\s*", "", raw)
     raw = re.sub(r"```\s*", "", raw).strip()
     

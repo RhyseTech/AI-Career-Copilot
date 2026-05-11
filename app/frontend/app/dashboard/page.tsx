@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import Image from "next/image";
+import { type CSSProperties, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseResumeSections, renderBalancedTemplate, renderClassicTemplate } from "./resume_template_modules";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -15,6 +17,8 @@ type Tab =
   | "salary"
   | "linkedin"
   | "recruiter";
+
+type PdfTemplate = "classic" | "balanced" | "compact";
 
 interface SkillGap {
   skill: string;
@@ -105,6 +109,15 @@ interface RecruiterResponse {
   mock_interview_focus?: string[];
 }
 
+interface MemorySessionItem {
+  id: number;
+  title?: string;
+  payload?: {
+    analysis_result?: AnalysisResult;
+    job_description?: string;
+  };
+}
+
 interface OptimizeResponseData {
   optimized_resume?: string;
   key_changes?: string[];
@@ -166,6 +179,301 @@ interface DownloadResume {
   education?: string[];
   certifications?: string[];
   additional_sections?: DownloadResumeSection[];
+}
+
+function cleanResumeText(value: unknown) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/[*_`#]/g, "")
+    .replace(/[{}[\]]/g, " ")
+    .replace(/^\s*here\s+is\s+the\s+(rewritten|optimized|updated)[^:]*:\s*/i, "")
+    .replace(/^\s*in\s+(json|markdown)\s+format\s*:?\s*/i, "")
+    .replace(/^\s*(json|markdown)\s+format\s*:?\s*/i, "")
+    .replace(/^\s*(response|output)\s*:?\s*/i, "")
+    .replace(/^"?optimized_?resume"?\s*:\s*/i, "")
+    .replace(/^"?summary"?\s*:\s*/i, "")
+    .replace(/^"?experience"?\s*:\s*/i, "")
+    .replace(/^"?projects"?\s*:\s*/i, "")
+    .replace(/^"+|"+$/g, "")
+    .replace(/^'+|'+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasLetters(value: string) {
+  return /[A-Za-z]/.test(value);
+}
+
+function looksLikeAddressOrPhone(value: string) {
+  const text = value.trim();
+  if (/\d{3}[-\s]?\d{3}[-\s]?\d{4}/.test(text)) return true;
+  if (/^\d{1,6}\s+[A-Za-z]/.test(text)) return true;
+  if (/\b(st|street|rd|road|ave|avenue|blvd|lane|ln|dr|drive|apt|unit)\b/i.test(text)) return true;
+  return false;
+}
+
+function looksLikePlaceholderName(value: string) {
+  return /^(first name|last name|full name|your name|candidate name|name here)/i.test(value.trim())
+    || /(first name|last name|full name|your name|candidate name)/i.test(value);
+}
+
+function looksLikeModelArtifact(value: string) {
+  const text = value.trim().toLowerCase();
+  if (!text) return true;
+  if (/optimized|rewritten|json|markdown|output|response/.test(text)) return true;
+  if (/resume|professional summary|core skills/.test(text) && text.length > 24) return true;
+  if (/^here is/.test(text)) return true;
+  return false;
+}
+
+function isLikelyValidName(value: string) {
+  const text = cleanResumeText(value);
+  if (!text) return false;
+  if (text.length < 3 || text.length > 42) return false;
+  if (!hasLetters(text)) return false;
+  if (looksLikeAddressOrPhone(text)) return false;
+  if (looksLikePlaceholderName(text)) return false;
+  if (looksLikeModelArtifact(text)) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length > 5) return false;
+  return true;
+}
+
+function cleanSkillToken(value: string) {
+  return cleanResumeText(value)
+    .replace(/^[-*.\d\s]+/, "")
+    .replace(/[|,:;]+$/g, "")
+    .trim();
+}
+
+function isSkillLike(value: string) {
+  const text = cleanSkillToken(value);
+  if (!text) return false;
+  if (text.length < 2 || text.length > 56) return false;
+  if (looksLikeModelArtifact(text)) return false;
+  if (/[{}[\]"]/g.test(text)) return false;
+  return true;
+}
+
+function isMeaningfulEntry(value: string) {
+  const text = cleanResumeText(value).toLowerCase();
+  if (!text) return false;
+  if (text === "none" || text === "n/a" || text === "na") return false;
+  return true;
+}
+
+function scrubSummary(value: string) {
+  const cleaned = cleanResumeText(value)
+    .replace(/^here is[^.]*resume[^.]*\.\s*/i, "")
+    .replace(/^here is[^:]*:\s*/i, "")
+    .replace(/^"?optimized_?resume"?\s*:\s*/i, "")
+    .replace(/^"?summary"?\s*:\s*/i, "")
+    .replace(/^["']+|["']+$/g, "")
+    .trim();
+  if (!cleaned || looksLikeModelArtifact(cleaned)) return "";
+  return cleaned;
+}
+
+function extractEmail(text: string) {
+  const match = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0] : "";
+}
+
+function extractPhone(text: string) {
+  const match = text.match(/(?:\+?\d[\d\s()-]{7,}\d)/);
+  return match ? cleanResumeText(match[0]) : "";
+}
+
+function extractLinkedin(text: string) {
+  const match = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s|,)]+/i);
+  return match ? match[0] : "";
+}
+
+function pickFirstLikelyName(source: string) {
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => cleanResumeText(line))
+    .filter(Boolean);
+  for (const line of lines.slice(0, 8)) {
+    if (!isLikelyValidName(line)) continue;
+    if (/summary|experience|education|skills|project|certification/i.test(line)) continue;
+    return line;
+  }
+  return "";
+}
+
+function pickSummaryFromOptimized(optimizedResume: string) {
+  const lines = optimizedResume
+    .split(/\r?\n/)
+    .map((line) => cleanResumeText(line))
+    .filter(Boolean);
+  const filtered = lines.filter(
+    (line) =>
+      !/^(summary|experience|education|skills|projects|certifications|contact|profile|professional summary)$/i.test(line)
+      && !line.startsWith("-")
+      && !looksLikeModelArtifact(line)
+      && line.length > 35,
+  );
+  return scrubSummary(filtered.slice(0, 2).join(" "));
+}
+
+function extractEducationHints(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => cleanResumeText(line))
+    .filter((line) => /university|college|bachelor|master|b\.tech|m\.tech|degree/i.test(line))
+    .slice(0, 3);
+}
+
+function normalizeDownloadResume(
+  rawLayout: unknown,
+  optimizedResume: string,
+  analysis: AnalysisResult,
+  targetRole: string,
+  keyChanges: string[],
+): DownloadResume {
+  const fromRaw = (() => {
+    if (!rawLayout) return {} as Partial<DownloadResume>;
+    if (typeof rawLayout === "string") {
+      try {
+        return JSON.parse(rawLayout) as Partial<DownloadResume>;
+      } catch {
+        return {} as Partial<DownloadResume>;
+      }
+    }
+    if (typeof rawLayout === "object") return rawLayout as Partial<DownloadResume>;
+    return {} as Partial<DownloadResume>;
+  })();
+
+  // NEW: Fill in gaps from optimized_resume text if layout fields are sparse
+  const textSections = parseResumeSections(optimizedResume);
+
+  const sourceName = pickFirstLikelyName(analysis.resume_text || optimizedResume);
+  const fullNameCandidate = cleanResumeText(fromRaw.full_name);
+  const safeName =
+    isLikelyValidName(fullNameCandidate)
+      ? fullNameCandidate
+      : sourceName || "John Doe";
+
+  const headlineCandidate = cleanResumeText(fromRaw.headline);
+  const headlineLooksLikeName = headlineCandidate
+    && cleanResumeText(headlineCandidate).toLowerCase() === cleanResumeText(safeName).toLowerCase();
+  const safeHeadline =
+    headlineCandidate.length >= 3 && !looksLikeModelArtifact(headlineCandidate) && !headlineLooksLikeName
+      ? headlineCandidate
+      : cleanResumeText(analysis.jd_parsed?.role_title) || cleanResumeText(targetRole) || "Backend Developer";
+
+  const summaryCandidate = cleanResumeText(fromRaw.summary);
+  const safeSummary =
+    scrubSummary(summaryCandidate)
+    || scrubSummary(textSections.summary || "")
+    || pickSummaryFromOptimized(optimizedResume)
+    || "Results-focused professional with role-relevant execution and measurable outcomes.";
+
+  const rawSkills = Array.isArray(fromRaw.core_skills)
+    ? fromRaw.core_skills.map((skill) => cleanSkillToken(skill)).filter((skill) => isSkillLike(skill))
+    : [];
+  const safeSkillsBase = rawSkills.length
+    ? rawSkills
+    : [...(textSections.core_skills || []), ...(analysis.parsed_skills || []), ...(analysis.matched_skills || [])]
+      .map((skill) => cleanSkillToken(skill))
+      .filter((skill) => isSkillLike(skill))
+      .filter((skill, idx, arr) => arr.findIndex((entry) => entry.toLowerCase() === skill.toLowerCase()) === idx)
+      .slice(0, 24);
+  const safeSkills = safeSkillsBase.length
+    ? safeSkillsBase
+    : (analysis.jd_required_skills || []).map((skill) => cleanSkillToken(skill)).filter((skill) => isSkillLike(skill)).slice(0, 8);
+
+  const rawExperience = Array.isArray(fromRaw.experience) ? fromRaw.experience : [];
+  const safeExperience: DownloadResumeExperience[] =
+    (rawExperience.length ? rawExperience : (textSections.experience || []))
+      .map((item) => ({
+        role_title: cleanResumeText(item?.role_title),
+        company: cleanResumeText(item?.company),
+        location: cleanResumeText(item?.location),
+        date_range: cleanResumeText(item?.date_range),
+        bullets: Array.isArray(item?.bullets) ? item.bullets.map((bullet) => cleanResumeText(bullet)).filter(Boolean) : [],
+      }))
+      .filter((item) => item.role_title || item.company || (item.bullets || []).length) || [];
+
+  const repairedExperience = safeExperience.length
+    ? safeExperience
+    : [
+      {
+        role_title: safeHeadline,
+        company: "Professional Experience",
+        location: cleanResumeText(analysis.jd_parsed?.industry) || "",
+        date_range: cleanResumeText(analysis.jd_parsed?.years_of_experience) || "",
+        bullets: keyChanges.length
+          ? keyChanges.slice(0, 4).map((change) => cleanResumeText(change))
+          : [
+            "Delivered production features and improvements aligned to job requirements.",
+            "Improved quality, performance, and collaboration outcomes across projects.",
+          ],
+      },
+    ];
+
+  const rawProjects = Array.isArray(fromRaw.projects) ? fromRaw.projects : [];
+  const safeProjects: DownloadResumeProject[] = (rawProjects.length ? rawProjects : (textSections.projects || []))
+    .map((project) => ({
+      name: cleanResumeText(project?.name),
+      subtitle: cleanResumeText(project?.subtitle),
+      bullets: Array.isArray(project?.bullets) ? project.bullets.map((bullet) => cleanResumeText(bullet)).filter(Boolean) : [],
+    }))
+    .filter((project) => project.name || project.subtitle || (project.bullets || []).length);
+
+  const repairedProjects = safeProjects.length
+    ? safeProjects
+    : [
+      {
+        name: "Impact Project",
+        subtitle: "Role-relevant implementation",
+        bullets: [
+          "Designed and delivered a project aligned to target role requirements.",
+          "Applied core tools and best practices to solve practical use cases.",
+        ],
+      },
+    ];
+
+  const rawEducation = Array.isArray(fromRaw.education)
+    ? fromRaw.education.map((entry) => cleanResumeText(entry)).filter((entry) => isMeaningfulEntry(entry))
+    : [];
+  const safeEducation = rawEducation.length ? rawEducation : [...(textSections.education || []), ...extractEducationHints(analysis.resume_text)];
+
+  const rawCerts = Array.isArray(fromRaw.certifications)
+    ? fromRaw.certifications.map((entry) => cleanResumeText(entry)).filter((entry) => isMeaningfulEntry(entry))
+    : [];
+  const safeCerts = rawCerts.length
+    ? rawCerts
+    : [...(textSections.certifications || [])]
+      .map((entry) => cleanResumeText(entry))
+      .filter((entry) => isMeaningfulEntry(entry));
+
+  const fallbackEmail = extractEmail(analysis.resume_text || optimizedResume);
+  const fallbackPhone = extractPhone(analysis.resume_text || optimizedResume);
+  const fallbackLinkedin = extractLinkedin(analysis.resume_text || optimizedResume);
+
+  return {
+    full_name: safeName,
+    headline: safeHeadline,
+    location: cleanResumeText(fromRaw.location) || "",
+    email: cleanResumeText(fromRaw.email) || fallbackEmail,
+    phone: cleanResumeText(fromRaw.phone) || fallbackPhone,
+    linkedin: cleanResumeText(fromRaw.linkedin) || fallbackLinkedin,
+    portfolio: cleanResumeText(fromRaw.portfolio) || "",
+    summary: safeSummary,
+    core_skills: safeSkills,
+    experience: repairedExperience,
+    projects: repairedProjects,
+    education: safeEducation,
+    certifications: safeCerts,
+    additional_sections: Array.isArray(fromRaw.additional_sections)
+      ? fromRaw.additional_sections.map((section) => ({
+        title: cleanResumeText(section?.title),
+        items: Array.isArray(section?.items) ? section.items.map((item) => cleanResumeText(item)).filter(Boolean) : [],
+      }))
+      : [],
+  };
 }
 
 function sanitizeFileName(value: string) {
@@ -251,7 +559,7 @@ function buildResumeText(layout: DownloadResume, optimizedResume: string) {
   return lines.join("\n").trim();
 }
 
-async function downloadResumePdf(layout: DownloadResume, optimizedResume: string, targetRole: string) {
+async function downloadResumePdf(layout: DownloadResume, optimizedResume: string, targetRole: string, template: PdfTemplate = "classic") {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -267,26 +575,26 @@ async function downloadResumePdf(layout: DownloadResume, optimizedResume: string
     }
   };
 
-  const writeWrapped = (text: string, size = 10.5, color = "#243040", gap = 15) => {
+  const writeWrapped = (text: string, size = 10.5, color = "#243040", gap = 15, width = contentWidth, x = margin) => {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(size);
     doc.setTextColor(color);
-    const lines = doc.splitTextToSize(text, contentWidth);
+    const lines = doc.splitTextToSize(text, width);
     ensureSpace(lines.length * gap + 4);
-    doc.text(lines, margin, y);
+    doc.text(lines, x, y);
     y += lines.length * gap;
   };
 
-  const writeSection = (title: string) => {
+  const writeSection = (title: string, x = margin, width = contentWidth) => {
     ensureSpace(30);
     y += 10;
     doc.setDrawColor(220, 226, 232);
-    doc.line(margin, y, pageWidth - margin, y);
+    doc.line(x, y, x + width, y);
     y += 16;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor("#0f172a");
-    doc.text(title.toUpperCase(), margin, y);
+    doc.text(title.toUpperCase(), x, y);
     y += 14;
   };
 
@@ -294,104 +602,104 @@ async function downloadResumePdf(layout: DownloadResume, optimizedResume: string
   const headline = layout.headline || targetRole || "ATS-Friendly Resume";
   const contactLine = [layout.location, layout.email, layout.phone, layout.linkedin, layout.portfolio].filter(Boolean).join("  |  ");
 
-  doc.setFillColor(255, 255, 255);
-  doc.rect(0, 0, pageWidth, pageHeight, "F");
+  const renderClassic = () => {
+    const rendered = renderClassicTemplate(doc, layout, targetRole);
+    y = Math.max(y, rendered.cursorY);
+  };
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor("#0f172a");
-  doc.text(name, margin, y);
-  y += 24;
+  const renderBalanced = () => {
+    const rendered = renderBalancedTemplate(doc, layout, targetRole);
+    y = Math.max(y, rendered.cursorY);
+  };
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor("#475569");
-  doc.text(headline, margin, y);
-  y += 16;
+  const renderCompact = () => {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+    doc.setDrawColor(15, 23, 42);
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 82, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor("#ffffff");
+    doc.text(name, margin, 36);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.text(headline, margin, 54);
+    if (contactLine) {
+      doc.setFontSize(8.4);
+      doc.setTextColor("#cbd5e1");
+      doc.text(doc.splitTextToSize(contactLine, pageWidth - margin * 2), margin, 70);
+    }
+    y = 96;
 
-  if (contactLine) writeWrapped(contactLine, 9.5, "#64748b", 13);
-  if (layout.summary) {
-    writeSection("Professional Summary");
-    writeWrapped(layout.summary, 10.5, "#243040", 15);
-  }
-  if (layout.core_skills?.length) {
-    writeSection("Core Skills");
-    writeWrapped(layout.core_skills.join(" | "), 10.5, "#243040", 15);
-  }
-
-  if (layout.experience?.length) {
-    writeSection("Professional Experience");
-    layout.experience.forEach((entry) => {
-      const titleLine = [entry.role_title, entry.company].filter(Boolean).join(" | ");
-      const metaLine = [entry.location, entry.date_range].filter(Boolean).join(" | ");
-      if (titleLine) {
-        ensureSpace(18);
+    if (layout.summary) {
+      writeSection("Summary");
+      writeWrapped(layout.summary, 10, "#1f2937", 14);
+    }
+    if (layout.core_skills?.length) {
+      writeSection("Core Skills");
+      writeWrapped(layout.core_skills.join(" | "), 9.8, "#1f2937", 13);
+    }
+    if (layout.experience?.length) {
+      writeSection("Experience");
+      layout.experience.forEach((entry) => {
+        const titleLine = [entry.role_title, entry.company].filter(Boolean).join(" | ");
+        const meta = [entry.date_range, entry.location].filter(Boolean).join(" | ");
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(10.5);
+        doc.setFontSize(10.3);
         doc.setTextColor("#0f172a");
-        doc.text(titleLine, margin, y);
-        y += 14;
-      }
-      if (metaLine) writeWrapped(metaLine, 9.5, "#64748b", 13);
-      (entry.bullets || []).forEach((bullet) => {
-        const lines = doc.splitTextToSize(`- ${bullet}`, contentWidth - 10);
-        ensureSpace(lines.length * 14 + 4);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10.2);
-        doc.setTextColor("#243040");
-        doc.text(lines, margin + 8, y);
-        y += lines.length * 14;
+        if (titleLine) doc.text(titleLine, margin, y);
+        y += 13;
+        if (meta) writeWrapped(meta, 9, "#64748b", 12);
+        (entry.bullets || []).slice(0, 5).forEach((bullet) => {
+          const lines = doc.splitTextToSize(`- ${bullet}`, contentWidth - 8);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9.7);
+          doc.setTextColor("#1f2937");
+          ensureSpace(lines.length * 12 + 3);
+          doc.text(lines, margin + 4, y);
+          y += lines.length * 12;
+        });
+        y += 4;
       });
-      y += 4;
-    });
-  }
-
-  if (layout.projects?.length) {
-    writeSection("Projects");
-    layout.projects.forEach((project) => {
-      const titleLine = [project.name, project.subtitle].filter(Boolean).join(" | ");
-      if (titleLine) {
-        ensureSpace(18);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10.5);
-        doc.setTextColor("#0f172a");
-        doc.text(titleLine, margin, y);
-        y += 14;
-      }
-      (project.bullets || []).forEach((bullet) => {
-        const lines = doc.splitTextToSize(`- ${bullet}`, contentWidth - 10);
-        ensureSpace(lines.length * 14 + 4);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10.2);
-        doc.setTextColor("#243040");
-        doc.text(lines, margin + 8, y);
-        y += lines.length * 14;
+    }
+    if (layout.projects?.length) {
+      writeSection("Projects");
+      layout.projects.forEach((project) => {
+        const t = [project.name, project.subtitle].filter(Boolean).join(" | ");
+        if (t) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor("#0f172a");
+          doc.text(t, margin, y);
+          y += 12;
+        }
+        (project.bullets || []).slice(0, 3).forEach((bullet) => {
+          writeWrapped(`- ${bullet}`, 9.7, "#1f2937", 12);
+        });
       });
-      y += 4;
-    });
-  }
+    }
+    if (layout.education?.length) {
+      writeSection("Education");
+      layout.education.forEach((entry) => writeWrapped(`- ${entry}`, 9.7, "#1f2937", 12));
+    }
+    if (layout.certifications?.length) {
+      writeSection("Certifications");
+      layout.certifications.forEach((entry) => writeWrapped(`- ${entry}`, 9.7, "#1f2937", 12));
+    }
+  };
 
-  if (layout.education?.length) {
-    writeSection("Education");
-    layout.education.forEach((entry) => writeWrapped(`- ${entry}`, 10.2, "#243040", 14));
-  }
-  if (layout.certifications?.length) {
-    writeSection("Certifications");
-    layout.certifications.forEach((entry) => writeWrapped(`- ${entry}`, 10.2, "#243040", 14));
-  }
-
-  (layout.additional_sections || []).forEach((section) => {
-    if (!section.title || !section.items?.length) return;
-    writeSection(section.title);
-    section.items.forEach((entry) => writeWrapped(`- ${entry}`, 10.2, "#243040", 14));
-  });
+  if (template === "balanced") renderBalanced();
+  else if (template === "compact") renderCompact();
+  else renderClassic();
 
   if (!layout.summary && !layout.experience?.length && optimizedResume) {
+    y = Math.max(y, margin + 100);
     writeSection("Optimized Resume");
     writeWrapped(optimizedResume, 10.2, "#243040", 14);
   }
 
-  doc.save(`${sanitizeFileName(name || targetRole || "ats-resume")}-ats-resume.pdf`);
+  doc.save(`${sanitizeFileName(name || targetRole || "ats-resume")}-ats-resume-${template}.pdf`);
 }
 
 async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
@@ -422,6 +730,12 @@ function formatTimestamp(value: string | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "N/A";
   return date.toLocaleString();
+}
+
+function templateDisplayName(template: PdfTemplate) {
+  if (template === "balanced") return "Balanced";
+  if (template === "compact") return "Compact";
+  return "Classic";
 }
 
 function ScoreRing({ score, size = 132 }: { score: number; size?: number }) {
@@ -519,6 +833,178 @@ function AlertCard({ message }: { message: string }) {
   );
 }
 
+function ResumeTemplatePicker({
+  value,
+  onChange,
+  mode = "inline",
+}: {
+  value: PdfTemplate;
+  onChange: (template: PdfTemplate) => void;
+  mode?: "inline" | "modal";
+}) {
+  const isModal = mode === "modal";
+  const templates: { id: PdfTemplate; label: string; subtitle: string; accent: string; background: string; modalTint: string; modalBorder: string; modalGlow: string; }[] = [
+    {
+      id: "classic",
+      label: "Classic",
+      subtitle: "Simple single-column ATS-safe layout",
+      accent: "#2563eb",
+      background: "linear-gradient(180deg, rgba(37,99,235,0.18), rgba(37,99,235,0.03))",
+      modalTint: "linear-gradient(180deg, rgba(37,99,235,0.2), rgba(37,99,235,0.05))",
+      modalBorder: "rgba(96,165,250,0.55)",
+      modalGlow: "rgba(37,99,235,0.34)",
+    },
+    {
+      id: "balanced",
+      label: "Balanced",
+      subtitle: "Two-column modern professional layout",
+      accent: "#0ea5e9",
+      background: "linear-gradient(180deg, rgba(14,165,233,0.18), rgba(14,165,233,0.03))",
+      modalTint: "linear-gradient(180deg, rgba(6,182,212,0.22), rgba(6,182,212,0.05))",
+      modalBorder: "rgba(34,211,238,0.52)",
+      modalGlow: "rgba(6,182,212,0.3)",
+    },
+    {
+      id: "compact",
+      label: "Compact",
+      subtitle: "Space-saving layout for long experience",
+      accent: "#8b5cf6",
+      background: "linear-gradient(180deg, rgba(139,92,246,0.18), rgba(139,92,246,0.03))",
+      modalTint: "linear-gradient(180deg, rgba(139,92,246,0.2), rgba(139,92,246,0.05))",
+      modalBorder: "rgba(167,139,250,0.5)",
+      modalGlow: "rgba(139,92,246,0.28)",
+    },
+  ];
+
+  return (
+    <div className={isModal ? "" : "glass-card"} style={{ padding: isModal ? 0 : 16, background: isModal ? "transparent" : "rgba(255,255,255,0.02)" }}>
+      <div
+        style={{
+          fontSize: isModal ? "2.2rem" : "0.78rem",
+          color: isModal ? "var(--text-primary)" : "var(--text-muted)",
+          marginBottom: isModal ? 22 : 12,
+          textTransform: isModal ? "none" : "uppercase",
+          letterSpacing: isModal ? "-0.01em" : "0.08em",
+          fontWeight: isModal ? 800 : 600,
+          lineHeight: 1.15,
+        }}
+      >
+        {isModal ? "Selected by Overleaf staff" : "Choose Resume Template"}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${isModal ? "330px" : "210px"}, 1fr))`, gap: isModal ? 24 : 12 }}>
+        {templates.map((item) => {
+          const selected = value === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onChange(item.id)}
+              style={{
+                borderRadius: isModal ? 8 : 14,
+                border: isModal ? `1px solid ${item.modalBorder}` : selected ? `1px solid ${item.accent}` : "1px solid var(--border-subtle)",
+                padding: isModal ? 14 : 10,
+                background: isModal ? item.modalTint : selected ? item.background : "rgba(255,255,255,0.01)",
+                color: isModal ? "var(--text-primary)" : "inherit",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "all 0.2s ease",
+                boxShadow: isModal
+                  ? selected
+                    ? `0 0 0 1px ${item.modalBorder}, 0 14px 32px ${item.modalGlow}`
+                    : "0 8px 20px rgba(2,6,23,0.32)"
+                  : selected
+                    ? `0 0 0 1px ${item.accent}30 inset, 0 8px 24px ${item.accent}25`
+                    : "none",
+              }}
+            >
+              <div
+                style={{
+                  height: isModal ? 300 : 132,
+                  borderRadius: isModal ? 4 : 10,
+                  background: "rgba(255,255,255,0.98)",
+                  border: "1px solid rgba(15,23,42,0.1)",
+                  padding: isModal ? 14 : 8,
+                  marginBottom: isModal ? 12 : 10,
+                  overflow: "hidden",
+                }}
+              >
+                {item.id === "classic" ? (
+                  <div
+                    style={{
+                      height: "100%",
+                      borderRadius: isModal ? 8 : 6,
+                      border: selected ? "2px solid #2563eb" : "1px solid #dbe2ea",
+                      background: "#eef1f5",
+                      padding: 0,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                      <Image
+                        src="/icon/tem1.png"
+                        alt="Classic template preview"
+                        fill
+                        sizes={isModal ? "33vw" : "220px"}
+                        style={{ objectFit: "cover", objectPosition: "center top" }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                {item.id === "balanced" ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.85fr", gap: isModal ? 10 : 6, height: "100%" }}>
+                    <div style={{ display: "grid", gap: isModal ? 7 : 4, alignContent: "start" }}>
+                      <div style={{ height: isModal ? 12 : 8, width: "68%", borderRadius: 4, background: "#111827" }} />
+                      <div style={{ height: isModal ? 8 : 5, width: "90%", borderRadius: 4, background: "#9ca3af" }} />
+                      <div style={{ height: 2, width: "100%", background: "#e5e7eb", marginTop: 1 }} />
+                      <div style={{ height: isModal ? 10 : 6, width: "52%", borderRadius: 4, background: "#b59f64", marginTop: 2 }} />
+                      <div style={{ height: isModal ? 8 : 5, width: "95%", borderRadius: 4, background: "#e5e7eb" }} />
+                      <div style={{ height: isModal ? 8 : 5, width: "91%", borderRadius: 4, background: "#e5e7eb" }} />
+                      <div style={{ height: isModal ? 8 : 5, width: "86%", borderRadius: 4, background: "#e5e7eb" }} />
+                    </div>
+                    <div style={{ display: "grid", gap: isModal ? 7 : 4, alignContent: "start" }}>
+                      <div style={{ height: isModal ? 10 : 6, width: "72%", borderRadius: 4, background: "#3b82f6" }} />
+                      <div style={{ height: isModal ? 7 : 4, width: "85%", borderRadius: 4, background: "#d1d5db" }} />
+                      <div style={{ height: isModal ? 7 : 4, width: "76%", borderRadius: 4, background: "#e5e7eb" }} />
+                      <div style={{ height: isModal ? 10 : 6, width: "65%", borderRadius: 4, background: "#3b82f6", marginTop: 3 }} />
+                      <div style={{ height: isModal ? 7 : 4, width: "84%", borderRadius: 4, background: "#d1d5db" }} />
+                      <div style={{ height: isModal ? 7 : 4, width: "78%", borderRadius: 4, background: "#e5e7eb" }} />
+                    </div>
+                  </div>
+                ) : null}
+                {item.id === "compact" ? (
+                  <div style={{ display: "grid", gap: isModal ? 8 : 5 }}>
+                    <div style={{ height: isModal ? 34 : 18, borderRadius: 5, background: "#444444" }} />
+                    <div style={{ height: isModal ? 10 : 7, width: "42%", borderRadius: 4, background: "#374151" }} />
+                    <div style={{ height: isModal ? 8 : 5, width: "100%", borderRadius: 4, background: "#d1d5db" }} />
+                    <div style={{ height: isModal ? 8 : 5, width: "94%", borderRadius: 4, background: "#e5e7eb" }} />
+                    <div style={{ height: isModal ? 10 : 7, width: "38%", borderRadius: 4, background: "#374151", marginTop: 2 }} />
+                    <div style={{ height: isModal ? 8 : 5, width: "96%", borderRadius: 4, background: "#e5e7eb" }} />
+                    <div style={{ height: isModal ? 8 : 5, width: "89%", borderRadius: 4, background: "#e5e7eb" }} />
+                    <div style={{ height: isModal ? 8 : 5, width: "84%", borderRadius: 4, background: "#e5e7eb" }} />
+                  </div>
+                ) : null}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                <div style={{ fontSize: isModal ? "1rem" : "0.9rem", fontWeight: 700 }}>{item.label}</div>
+                {selected ? (
+                  <span
+                    className={isModal ? "" : "chip chip-cyan"}
+                    style={isModal ? { fontSize: "0.75rem", padding: "4px 9px", borderRadius: 999, background: "#dbeafe", color: "#1d4ed8", fontWeight: 700 } : { fontSize: "0.68rem", padding: "2px 8px" }}
+                  >
+                    Selected
+                  </span>
+                ) : null}
+              </div>
+              <div style={{ color: isModal ? "rgba(226,232,240,0.78)" : "var(--text-secondary)", fontSize: isModal ? "0.84rem" : "0.78rem", lineHeight: 1.45 }}>{item.subtitle}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function InterviewCard({ item, index }: { item: InterviewQuestion; index: number }) {
   const [open, setOpen] = useState(index < 3);
   const tone =
@@ -574,6 +1060,19 @@ function InterviewCard({ item, index }: { item: InterviewQuestion; index: number
 }
 
 function RoadmapTopicCard({ item }: { item: RoadmapTopic }) {
+  const actionButtonStyle: CSSProperties = {
+    padding: "10px 14px",
+    fontSize: "0.84rem",
+    textDecoration: "none",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03))",
+    color: "var(--text-primary)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+  };
+
   return (
     <div className="glass-card" style={{ padding: 22, display: "grid", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -607,13 +1106,15 @@ function RoadmapTopicCard({ item }: { item: RoadmapTopic }) {
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
         {item.google_link ? (
-          <a href={item.google_link} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: "10px 14px", fontSize: "0.84rem", textDecoration: "none" }}>
-            Google search
+          <a href={item.google_link} target="_blank" rel="noreferrer" style={actionButtonStyle}>
+            <Image src="/icon/google.png" alt="Google" width={18} height={18} />
+            Google
           </a>
         ) : null}
         {item.youtube_link ? (
-          <a href={item.youtube_link} target="_blank" rel="noreferrer" className="btn-secondary" style={{ padding: "10px 14px", fontSize: "0.84rem", textDecoration: "none" }}>
-            YouTube videos
+          <a href={item.youtube_link} target="_blank" rel="noreferrer" style={actionButtonStyle}>
+            <Image src="/icon/youtube.png" alt="YouTube" width={18} height={18} />
+            YouTube
           </a>
         ) : null}
       </div>
@@ -660,6 +1161,9 @@ export default function DashboardPage() {
   const [optimizedResume, setOptimizedResume] = useState("");
   const [keyChanges, setKeyChanges] = useState<string[]>([]);
   const [resumeAtsScore, setResumeAtsScore] = useState(0);
+  const [maxAtsMode, setMaxAtsMode] = useState(true);
+  const [pdfTemplate, setPdfTemplate] = useState<PdfTemplate>("classic");
+  const [showTemplateChooser, setShowTemplateChooser] = useState(false);
   const [downloadResume, setDownloadResume] = useState<DownloadResume | null>(null);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [interviewLastBatchSize, setInterviewLastBatchSize] = useState(0);
@@ -670,35 +1174,82 @@ export default function DashboardPage() {
   const [recruiter, setRecruiter] = useState<RecruiterResponse | null>(null);
   const [loadingTab, setLoadingTab] = useState<Tab | null>(null);
   const [tabErrors, setTabErrors] = useState<Partial<Record<Tab, string>>>({});
+  const [memoryStatus, setMemoryStatus] = useState("Session-only mode");
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("analysisResult");
-    const storedJd = sessionStorage.getItem("jobDescription");
-    const storedSourceLabel = sessionStorage.getItem("jobDescriptionSourceLabel");
-    if (!stored) {
-      router.push("/analyze");
-      return;
-    }
-    const parsed = JSON.parse(stored) as AnalysisResult;
-    setResult(parsed);
-    setJobDescription(storedJd || parsed.job_description_text || "");
-    setJobDescriptionSourceLabel(storedSourceLabel || parsed.job_description_source_label || "");
+    const loadDashboardState = async () => {
+      const stored = sessionStorage.getItem("analysisResult");
+      const storedJd = sessionStorage.getItem("jobDescription");
+      const storedSourceLabel = sessionStorage.getItem("jobDescriptionSourceLabel");
+      if (stored) {
+        const parsed = JSON.parse(stored) as AnalysisResult;
+        setResult(parsed);
+        setJobDescription(storedJd || parsed.job_description_text || "");
+        setJobDescriptionSourceLabel(storedSourceLabel || parsed.job_description_source_label || "");
+        setMemoryStatus("Loaded from current browser session");
+        return;
+      }
+
+      const token = localStorage.getItem("careerCopilotToken");
+      if (!token) {
+        router.push("/analyze");
+        return;
+      }
+
+      try {
+        const payload = await fetchJson<{ sessions?: MemorySessionItem[] }>(`${API}/api/memory/sessions?limit=1`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const latest = payload.sessions?.[0];
+        const analysis = latest?.payload?.analysis_result;
+        if (!analysis) {
+          router.push("/analyze");
+          return;
+        }
+        const jdText = latest.payload?.job_description || analysis.job_description_text || "";
+        setResult(analysis);
+        setJobDescription(jdText);
+        setJobDescriptionSourceLabel(analysis.job_description_source_label || "Saved session");
+        sessionStorage.setItem("analysisResult", JSON.stringify(analysis));
+        sessionStorage.setItem("jobDescription", jdText);
+        sessionStorage.setItem("jobDescriptionSourceLabel", analysis.job_description_source_label || "Saved session");
+        setMemoryStatus("Restored from your account history");
+      } catch {
+        router.push("/analyze");
+      }
+    };
+
+    void loadDashboardState();
   }, [router]);
 
-  async function loadResumeOptimization(data: AnalysisResult) {
-    if (optimizedResume) return;
+  async function loadResumeOptimization(data: AnalysisResult, force = false, atsMode = maxAtsMode) {
+    if (optimizedResume && !force) return;
     setLoadingTab("resume");
     setTabErrors((prev) => ({ ...prev, resume: undefined }));
     try {
       const payload = await fetchJson<OptimizeResponseData>(`${API}/api/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resume_text: data.resume_text, job_description: jobDescription }),
+        body: JSON.stringify({
+          resume_text: data.resume_text,
+          job_description: jobDescription,
+          max_ats_mode: atsMode,
+        }),
       });
-      setOptimizedResume(payload.optimized_resume || "");
-      setKeyChanges(payload.key_changes || []);
+      const safeOptimized = payload.optimized_resume || "";
+      const safeChanges = payload.key_changes || [];
+      setOptimizedResume(safeOptimized);
+      setKeyChanges(safeChanges);
       setResumeAtsScore(payload.ats_score_estimate || 0);
-      setDownloadResume(payload.download_resume || null);
+      const repairedLayout = normalizeDownloadResume(
+        payload.download_resume || null,
+        safeOptimized,
+        data,
+        data.jd_parsed?.role_title || "",
+        safeChanges,
+      );
+      setDownloadResume(repairedLayout);
     } catch (error) {
       setTabErrors((prev) => ({ ...prev, resume: error instanceof Error ? error.message : "Unable to optimize resume." }));
     } finally {
@@ -759,28 +1310,6 @@ export default function DashboardPage() {
       setLoadingTab(null);
     }
   }
-
-  async function loadSalary(data: AnalysisResult) {
-    if (salary) return;
-    setLoadingTab("salary");
-    setTabErrors((prev) => ({ ...prev, salary: undefined }));
-    try {
-      const payload = await fetchJson<SalaryResponse>(`${API}/api/salary`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          role_title: data.jd_parsed?.role_title || "Target role",
-          location: "India",
-          seniority: data.jd_seniority || "mid",
-          years_experience: data.jd_parsed?.years_of_experience || "5-8",
-          key_skills: data.jd_required_skills.slice(0, 10),
-        }),
-      });
-      setSalary(payload);
-    } catch (error) {
-      setTabErrors((prev) => ({ ...prev, salary: error instanceof Error ? error.message : "Unable to load salary insight." }));
-    } finally {
-      setLoadingTab(null);
     }
   }
 
@@ -833,7 +1362,7 @@ export default function DashboardPage() {
   function handleTabChange(tab: Tab) {
     if (!result) return;
     setActiveTab(tab);
-    if (tab === "resume") void loadResumeOptimization(result);
+    if (tab === "resume") void loadResumeOptimization(result, false, maxAtsMode);
     if (tab === "interview") void loadInterview(result);
     if (tab === "roadmap") void loadRoadmap(result);
     if (tab === "salary") void loadSalary(result);
@@ -886,9 +1415,17 @@ export default function DashboardPage() {
               Career<span className="gradient-text">Copilot</span>
             </span>
           </Link>
-          <Link href="/analyze" className="btn-secondary" style={{ padding: "9px 18px", fontSize: "0.82rem", textDecoration: "none" }}>
-            New analysis
-          </Link>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Link href="/agent" className="btn-secondary" style={{ padding: "9px 14px", fontSize: "0.82rem", textDecoration: "none" }}>
+              Agent
+            </Link>
+            <Link href="/auth" className="btn-secondary" style={{ padding: "9px 14px", fontSize: "0.82rem", textDecoration: "none" }}>
+              Account
+            </Link>
+            <Link href="/analyze" className="btn-secondary" style={{ padding: "9px 14px", fontSize: "0.82rem", textDecoration: "none" }}>
+              New analysis
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -914,6 +1451,7 @@ export default function DashboardPage() {
                 <span className="chip chip-indigo">{result.jd_seniority} level</span>
                 {result.jd_parsed?.industry ? <span className="chip chip-cyan">{result.jd_parsed.industry}</span> : null}
                 {jobDescriptionSourceLabel ? <span className="chip chip-cyan">{jobDescriptionSourceLabel}</span> : null}
+                <span className="chip chip-indigo">{memoryStatus}</span>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
@@ -1029,6 +1567,26 @@ export default function DashboardPage() {
         {activeTab === "resume" ? (
           <div className="glass-card" style={{ padding: 24 }}>
             <SectionTitle title="Resume optimizer" subtitle="ATS-targeted rewrite based on the selected job description" />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+              <button
+                className={maxAtsMode ? "btn-primary" : "btn-secondary"}
+                style={{ padding: "10px 14px", fontSize: "0.84rem" }}
+                onClick={() => {
+                  if (!result) return;
+                  const nextMode = !maxAtsMode;
+                  setMaxAtsMode(nextMode);
+                  setOptimizedResume("");
+                  setKeyChanges([]);
+                  setResumeAtsScore(0);
+                  setDownloadResume(null);
+                  void loadResumeOptimization(result, true, nextMode);
+                }}
+                disabled={loadingTab === "resume"}
+              >
+                Max ATS Mode: {maxAtsMode ? "ON" : "OFF"}
+              </button>
+              <span className="chip chip-cyan">{maxAtsMode ? "Strict ATS format + keyword enforcement" : "Balanced rewrite mode"}</span>
+            </div>
             {tabErrors.resume ? <AlertCard message={tabErrors.resume} /> : null}
             {loadingTab === "resume" ? <div className="spinner" /> : null}
             {optimizedResume ? (
@@ -1044,8 +1602,17 @@ export default function DashboardPage() {
                   ))}
                 </div>
 
+                <div className="glass-card" style={{ padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+                    <span className="chip chip-cyan">Selected template: {templateDisplayName(pdfTemplate)}</span>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.83rem" }}>
+                      Click Download ATS PDF to open template gallery.
+                    </span>
+                  </div>
+                </div>
+
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  <button className="btn-primary" style={{ padding: "10px 16px", fontSize: "0.84rem" }} onClick={() => downloadResumePdf(downloadResume || {}, optimizedResume, result.jd_parsed?.role_title || "Resume")}>
+                  <button className="btn-primary" style={{ padding: "10px 16px", fontSize: "0.84rem" }} onClick={() => setShowTemplateChooser(true)}>
                     Download ATS PDF
                   </button>
                   <button
@@ -1322,6 +1889,72 @@ export default function DashboardPage() {
           </div>
         ) : null}
       </div>
+
+      {showTemplateChooser ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "radial-gradient(circle at 20% 15%, rgba(56,189,248,0.2), rgba(2,6,23,0.78) 45%), radial-gradient(circle at 80% 85%, rgba(139,92,246,0.18), rgba(2,6,23,0.9) 55%)",
+            backdropFilter: "blur(10px)",
+            zIndex: 300,
+            display: "grid",
+            placeItems: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            style={{
+              width: "min(1460px, 100%)",
+              borderRadius: 20,
+              padding: 34,
+              border: "1px solid rgba(148,163,184,0.26)",
+              background: "linear-gradient(135deg, rgba(15,23,42,0.72), rgba(7,12,28,0.84))",
+              boxShadow: "0 0 0 1px rgba(99,102,241,0.15), 0 30px 80px rgba(2,6,23,0.72), 0 0 60px rgba(99,102,241,0.2)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+              <div>
+                <h3 style={{ fontSize: "1.35rem", fontWeight: 800, marginBottom: 6, color: "var(--text-primary)" }}>Choose Your Resume Template</h3>
+                <p style={{ color: "rgba(203,213,225,0.84)", fontSize: "0.9rem", lineHeight: 1.6 }}>
+                  Select one design and click download.
+                </p>
+              </div>
+              <button
+                type="button"
+                style={{ padding: "9px 12px", fontSize: "0.82rem", borderRadius: 10, border: "1px solid rgba(148,163,184,0.35)", background: "rgba(15,23,42,0.45)", color: "var(--text-primary)", cursor: "pointer" }}
+                onClick={() => setShowTemplateChooser(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <ResumeTemplatePicker value={pdfTemplate} onChange={setPdfTemplate} mode="modal" />
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                style={{ padding: "10px 16px", fontSize: "0.84rem", borderRadius: 10, border: "1px solid rgba(148,163,184,0.35)", background: "rgba(15,23,42,0.45)", color: "var(--text-primary)", cursor: "pointer" }}
+                onClick={() => setShowTemplateChooser(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{ padding: "10px 16px", fontSize: "0.84rem", borderRadius: 10, border: "none", background: "#1d4ed8", color: "#ffffff", cursor: "pointer", fontWeight: 700 }}
+                onClick={() => {
+                  if (!result) return;
+                  void downloadResumePdf(downloadResume || {}, optimizedResume, result.jd_parsed?.role_title || "Resume", pdfTemplate);
+                  setShowTemplateChooser(false);
+                }}
+              >
+                Download Selected PDF ({templateDisplayName(pdfTemplate)})
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

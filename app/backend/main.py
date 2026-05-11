@@ -6,7 +6,8 @@ import os
 
 load_dotenv()
 
-from routers import analyze, optimize, interview, roadmap, ats, salary, linkedin, recruiter
+from routers import analyze, optimize, interview, roadmap, ats, salary, linkedin, recruiter, memory, agent
+from services.memory_store import init_memory_store
 
 app = FastAPI(
     title="AI Career Copilot API",
@@ -36,6 +37,13 @@ app.include_router(ats.router, prefix="/api", tags=["ATS Emulator"])
 app.include_router(salary.router, prefix="/api", tags=["Salary Intelligence"])
 app.include_router(linkedin.router, prefix="/api", tags=["LinkedIn Optimizer"])
 app.include_router(recruiter.router, prefix="/api", tags=["Recruiter Signal"])
+app.include_router(memory.router, prefix="/api", tags=["Memory"])
+app.include_router(agent.router, prefix="/api", tags=["Agent"])
+
+
+@app.on_event("startup")
+async def on_startup():
+    init_memory_store()
 
 
 @app.get("/health")
@@ -47,6 +55,8 @@ async def health_check():
         "endpoints": [
             "/api/analyze", "/api/optimize", "/api/interview", "/api/roadmap",
             "/api/ats-score", "/api/salary", "/api/linkedin-optimize", "/api/recruiter-signal",
+            "/api/memory/register", "/api/memory/login", "/api/memory/sessions", "/api/memory/progress",
+            "/api/agent/email-draft", "/api/agent/recruiter-outreach", "/api/agent/auto-apply-plan",
         ],
     }
 

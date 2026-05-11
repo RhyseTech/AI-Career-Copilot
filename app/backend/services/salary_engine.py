@@ -69,7 +69,7 @@ def get_salary_intelligence(
         key_skills=skills_str,
     )
 
-    raw = groq_chat(SALARY_SYSTEM, prompt, temperature=0.3)
+    raw = groq_chat(SALARY_SYSTEM, prompt, temperature=0.3, max_tokens=850)
     raw = re.sub(r"```json\s*", "", raw)
     raw = re.sub(r"```\s*", "", raw).strip()
 

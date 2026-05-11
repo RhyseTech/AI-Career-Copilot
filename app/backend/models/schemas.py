@@ -42,6 +42,7 @@ class AnalyzeResponse(BaseModel):
 class OptimizeRequest(BaseModel):
     resume_text: str
     job_description: str
+    max_ats_mode: bool = False
 
 
 class ResumeExperienceEntry(BaseModel):
@@ -139,3 +140,73 @@ class RoadmapResponse(BaseModel):
     sixty_day_plan: List[RoadmapWeek] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
     projects: List[str] = Field(default_factory=list)
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    full_name: Optional[str] = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserProfile(BaseModel):
+    id: int
+    email: str
+    full_name: str = ""
+    created_at: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserProfile
+
+
+class SaveSessionRequest(BaseModel):
+    title: Optional[str] = ""
+    analysis_result: Dict[str, object]
+    job_description: Optional[str] = ""
+
+
+class SavedSession(BaseModel):
+    id: int
+    title: str
+    role_title: str = ""
+    match_score: float = 0
+    created_at: str
+    payload: Dict[str, object]
+
+
+class ProgressTrackRequest(BaseModel):
+    event_type: str
+    score: Optional[float] = None
+    details: Dict[str, object] = Field(default_factory=dict)
+
+
+class AgentEmailDraftRequest(BaseModel):
+    recipient_name: str = ""
+    role_title: str = ""
+    company_name: str = ""
+    tone: str = "professional"
+    candidate_summary: str = ""
+    key_points: List[str] = Field(default_factory=list)
+
+
+class AgentOutreachRequest(BaseModel):
+    recipient_name: str = ""
+    recipient_role: str = ""
+    company_name: str = ""
+    context: str = ""
+    candidate_summary: str = ""
+    ask: str = "Request a short conversation about role fit."
+
+
+class AgentAutoApplyRequest(BaseModel):
+    role_title: str = ""
+    company_name: str = ""
+    resume_summary: str = ""
+    job_description: str = ""
+    constraints: List[str] = Field(default_factory=list)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from services.job_content import resolve_job_description
-from services.resume_parser import parse_resume
+from services.resume_parser import parse_resume, extract_skills_from_text
 from services.jd_parser import parse_job_description
 from services.match_engine import compute_match_score, compute_sub_scores, find_matched_skills, find_missing_skills
 from services.gap_engine import analyze_gaps
@@ -13,6 +13,19 @@ from services.groq_client import groq_chat
 router = APIRouter()
 
 
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    seen = set()
+    out: list[str] = []
+    for item in values:
+        clean = (item or "").strip()
+        key = clean.lower()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        out.append(clean)
+    return out
+
+
 @router.post("/analyze")
 async def analyze_profile(
     job_description: str = Form(""),
@@ -20,6 +33,7 @@ async def analyze_profile(
     job_description_file: UploadFile = File(None),
     resume_file: UploadFile = File(None),
     resume_text: str = Form(None),
+    location: str = Form("India"),
 ):
     """
     Core analysis endpoint — the main pipeline.
@@ -54,7 +68,9 @@ async def analyze_profile(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     jd_parsed = parse_job_description(jd_text)
-    jd_skills = jd_parsed.get("required_skills", []) + jd_parsed.get("tools", [])
+    jd_skills_llm = _dedupe_keep_order((jd_parsed.get("required_skills", []) or []) + (jd_parsed.get("tools", []) or []))
+    jd_skills_rule = _dedupe_keep_order(extract_skills_from_text(jd_text))
+    jd_skills = jd_skills_llm or jd_skills_rule
     jd_seniority = jd_parsed.get("seniority_level", "mid")
 
     # 3. Match score + sub-scores
@@ -85,7 +101,8 @@ async def analyze_profile(
     ]
 
     # 6. ATS Emulation
-    ats_result = emulate_ats_score(resume_raw, jd_skills)
+    # Use deterministic JD keyword extraction for ATS stability across repeated runs.
+    ats_result = emulate_ats_score(resume_raw, jd_skills_rule or jd_skills)
 
     # 7. Blind Spot Detection
     blind_spots = detect_blind_spots(resume_raw, jd_text, jd_skills)
@@ -113,6 +130,7 @@ Be direct, professional, and encouraging."""
             "You are a professional career advisor. Be concise and direct.",
             summary_prompt,
             temperature=0.4,
+            max_tokens=220,
         )
     except Exception:
         summary = (
@@ -143,4 +161,5 @@ Be direct, professional, and encouraging."""
         "ats_score": ats_result,
         "blind_spots": blind_spots,
         "confidence_score": confidence,
+        "location": location,
     }

@@ -66,7 +66,7 @@ def get_recruiter_signals(
     )
 
     try:
-        raw = groq_chat(RECRUITER_SYSTEM, prompt, temperature=0.4)
+        raw = groq_chat(RECRUITER_SYSTEM, prompt, temperature=0.4, max_tokens=950)
         raw = re.sub(r"```json\s*", "", raw)
         raw = re.sub(r"```\s*", "", raw).strip()
         result = json.loads(raw)

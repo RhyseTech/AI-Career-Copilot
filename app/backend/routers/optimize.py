@@ -8,6 +8,8 @@ from models.schemas import (
     ResumeSection,
 )
 from services.groq_client import groq_chat
+from services.ats_emulator import emulate_ats_score
+from services.resume_parser import extract_skills_from_text
 import re
 import json
 
@@ -99,6 +101,89 @@ def _extract_bullets(block: str) -> list[str]:
         if cleaned:
             items.append(cleaned)
     return items[:8]
+
+
+def _normalize_ats_text(text: str) -> str:
+    cleaned = text or ""
+    replacements = {
+        "•": "-",
+        "►": "-",
+        "▪": "-",
+        "–": "-",
+        "—": "-",
+    }
+    for old, new in replacements.items():
+        cleaned = cleaned.replace(old, new)
+    # Remove ATS-unfriendly box drawing characters.
+    cleaned = re.sub(r"[│║═─┼┬┴┤├]", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _has_section(text: str, names: list[str]) -> bool:
+    lowered = text.lower()
+    return any(name.lower() in lowered for name in names)
+
+
+def _append_section(text: str, title: str, lines: list[str]) -> str:
+    section_lines = [line.strip() for line in lines if line and line.strip()]
+    if not section_lines:
+        return text
+    suffix = "\n".join(section_lines)
+    return f"{text.strip()}\n\n{title}\n{suffix}".strip()
+
+
+def _enforce_max_ats_resume(resume_text: str, job_description: str) -> tuple[str, list[str], int]:
+    optimized = _normalize_ats_text(resume_text)
+    key_changes: list[str] = []
+
+    jd_keywords = extract_skills_from_text(job_description)
+    resume_keywords = {skill.lower() for skill in extract_skills_from_text(optimized)}
+    missing_keywords = [skill for skill in jd_keywords if skill.lower() not in resume_keywords][:12]
+
+    if missing_keywords:
+        optimized = _append_section(
+            optimized,
+            "CORE SKILLS",
+            [" | ".join(missing_keywords)],
+        )
+        key_changes.append("Added missing JD keywords to CORE SKILLS for stronger ATS matching.")
+
+    if not _has_section(optimized, ["professional summary", "summary", "profile"]):
+        optimized = _append_section(
+            optimized,
+            "PROFESSIONAL SUMMARY",
+            ["Results-focused candidate aligned to the target role requirements and ATS keyword expectations."],
+        )
+        key_changes.append("Added PROFESSIONAL SUMMARY section for ATS completeness.")
+
+    if not _has_section(optimized, ["experience", "professional experience", "work history"]):
+        optimized = _append_section(
+            optimized,
+            "PROFESSIONAL EXPERIENCE",
+            ["- Add role-specific achievements with measurable outcomes and action verbs."],
+        )
+        key_changes.append("Added PROFESSIONAL EXPERIENCE section heading for parser clarity.")
+
+    if not _has_section(optimized, ["education"]):
+        optimized = _append_section(
+            optimized,
+            "EDUCATION",
+            ["- Add highest degree, institution, and graduation year."],
+        )
+        key_changes.append("Added EDUCATION section heading for ATS structure compatibility.")
+
+    if not _has_section(optimized, ["skills", "core skills", "technical skills"]):
+        optimized = _append_section(
+            optimized,
+            "CORE SKILLS",
+            ["- Add role-relevant skills from the job description."],
+        )
+        key_changes.append("Added CORE SKILLS section heading for keyword indexing.")
+
+    ats_score = int(round(emulate_ats_score(optimized, jd_keywords)["overall_score"]))
+    return optimized, key_changes, ats_score
 
 
 def _build_fallback_download_resume(source_text: str, optimized_resume: str, job_description: str) -> DownloadResume:
@@ -203,24 +288,49 @@ async def optimize_resume(request: OptimizeRequest):
         job_description=request.job_description[:2000],
     )
 
-    raw = groq_chat(OPTIMIZE_SYSTEM, prompt, temperature=0.35)
+    raw = groq_chat(OPTIMIZE_SYSTEM, prompt, temperature=0.35, max_tokens=1700)
     raw = re.sub(r"```json\s*", "", raw)
     raw = re.sub(r"```\s*", "", raw).strip()
 
     try:
         result = json.loads(raw)
         optimized_resume = result.get("optimized_resume", request.resume_text)
+        key_changes = result.get("key_changes", [])
+        ats_score_estimate = int(result.get("ats_score_estimate", 80))
+
+        jd_keywords = extract_skills_from_text(request.job_description)
+        if request.max_ats_mode:
+            optimized_resume, enforced_changes, ats_score_estimate = _enforce_max_ats_resume(
+                optimized_resume,
+                request.job_description,
+            )
+            key_changes = [*key_changes, *enforced_changes, "Applied Max ATS Mode strict formatting and keyword enforcement."]
+        else:
+            ats_score_estimate = int(round(emulate_ats_score(optimized_resume, jd_keywords)["overall_score"]))
+
         return OptimizeResponse(
             optimized_resume=optimized_resume,
-            key_changes=result.get("key_changes", []),
-            ats_score_estimate=int(result.get("ats_score_estimate", 80)),
+            key_changes=key_changes,
+            ats_score_estimate=ats_score_estimate,
             download_resume=_coerce_download_resume(result, request.resume_text, optimized_resume, request.job_description),
         )
     except (json.JSONDecodeError, ValueError, TypeError):
         optimized_resume = raw or request.resume_text
+        key_changes = ["Resume rewritten to align with job description keywords"]
+        ats_score_estimate = 78
+        if request.max_ats_mode:
+            optimized_resume, enforced_changes, ats_score_estimate = _enforce_max_ats_resume(
+                optimized_resume,
+                request.job_description,
+            )
+            key_changes = [*key_changes, *enforced_changes, "Applied Max ATS Mode strict formatting and keyword enforcement."]
+        else:
+            jd_keywords = extract_skills_from_text(request.job_description)
+            ats_score_estimate = int(round(emulate_ats_score(optimized_resume, jd_keywords)["overall_score"]))
+
         return OptimizeResponse(
             optimized_resume=optimized_resume,
-            key_changes=["Resume rewritten to align with job description keywords"],
-            ats_score_estimate=78,
+            key_changes=key_changes,
+            ats_score_estimate=ats_score_estimate,
             download_resume=_build_fallback_download_resume(request.resume_text, optimized_resume, request.job_description),
         )

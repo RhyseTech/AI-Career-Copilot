@@ -59,7 +59,7 @@ def optimize_linkedin_profile(
         key_skills=skills_str,
     )
 
-    raw = groq_chat(LINKEDIN_SYSTEM, prompt, temperature=0.4)
+    raw = groq_chat(LINKEDIN_SYSTEM, prompt, temperature=0.4, max_tokens=1000)
     raw = re.sub(r"```json\s*", "", raw)
     raw = re.sub(r"```\s*", "", raw).strip()
 
